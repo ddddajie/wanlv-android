@@ -7,3 +7,9 @@ fun JSONObject.optNullableString(name: String): String? =
 
 fun JSONObject.optNullableInt(name: String): Int? =
     if (has(name) && !isNull(name)) optInt(name) else null
+
+fun JSONObject.optNullableLong(name: String): Long? =
+    if (has(name) && !isNull(name)) optLong(name) else null
+
+fun JSONObject.optNullableDouble(name: String): Double? =
+    if (has(name) && !isNull(name)) optDouble(name) else null

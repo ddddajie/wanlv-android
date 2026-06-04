@@ -16,6 +16,21 @@ object AppConfig {
     val debugToken: String?
         get() = values["WANLV_DEBUG_TOKEN"]?.takeIf { it.isNotBlank() }
 
+    val mapStyleUrl: String?
+        get() = values["WANLV_MAP_STYLE_URL"]?.takeIf { it.isNotBlank() }?.androidReachableUrl()
+
+    val mapVectorSourceUrl: String
+        get() = values["WANLV_MAP_VECTOR_SOURCE_URL"].orEmpty()
+            .ifBlank { BuildConfig.WANLV_MAP_VECTOR_SOURCE_URL }
+            .androidReachableUrl()
+
+    val mapRasterTileUrl: String?
+        get() = values["WANLV_MAP_RASTER_TILE_URL"]?.takeIf { it.isNotBlank() }?.androidReachableUrl()
+
+    val mapTileAttribution: String
+        get() = values["WANLV_MAP_TILE_ATTRIBUTION"].orEmpty()
+            .ifBlank { BuildConfig.WANLV_MAP_TILE_ATTRIBUTION }
+
     fun init(context: Context) {
         if (values.isNotEmpty()) return
         loadBuildConfigValues()
@@ -36,6 +51,11 @@ object AppConfig {
     }
 
     private fun loadBuildConfigValues() {
+        values["WANLV_API_BASE_URL"] = BuildConfig.WANLV_API_BASE_URL
+        values["WANLV_MAP_STYLE_URL"] = BuildConfig.WANLV_MAP_STYLE_URL
+        values["WANLV_MAP_VECTOR_SOURCE_URL"] = BuildConfig.WANLV_MAP_VECTOR_SOURCE_URL
+        values["WANLV_MAP_RASTER_TILE_URL"] = BuildConfig.WANLV_MAP_RASTER_TILE_URL
+        values["WANLV_MAP_TILE_ATTRIBUTION"] = BuildConfig.WANLV_MAP_TILE_ATTRIBUTION
         // 构建期读取 config 写入 BuildConfig，运行期读取 assets/config 作为覆盖配置。
         values["WANLV_API_BASE_URL"] = BuildConfig.WANLV_API_BASE_URL
         values["WANLV_DEBUG_USER_ID"] = BuildConfig.WANLV_DEBUG_USER_ID
@@ -52,4 +72,8 @@ object AppConfig {
         }
         return result
     }
+
+    private fun String.androidReachableUrl(): String =
+        replace("://localhost", "://10.0.2.2")
+            .replace("://127.0.0.1", "://10.0.2.2")
 }

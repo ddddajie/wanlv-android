@@ -48,6 +48,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "WANLV_API_BASE_URL", buildConfigString(wanLvEnvValue("WANLV_API_BASE_URL", "http://127.0.0.1:8080")))
+        buildConfigField("String", "WANLV_MAP_STYLE_URL", buildConfigString(wanLvEnvValue("WANLV_MAP_STYLE_URL")))
+        buildConfigField("String", "WANLV_MAP_VECTOR_SOURCE_URL", buildConfigString(wanLvEnvValue("WANLV_MAP_VECTOR_SOURCE_URL", "http://10.0.2.2:3000/china")))
+        buildConfigField("String", "WANLV_MAP_RASTER_TILE_URL", buildConfigString(wanLvEnvValue("WANLV_MAP_RASTER_TILE_URL")))
+        buildConfigField("String", "WANLV_MAP_TILE_ATTRIBUTION", buildConfigString(wanLvEnvValue("WANLV_MAP_TILE_ATTRIBUTION", "Local Martin tiles")))
         buildConfigField("String", "WANLV_DEBUG_USER_ID", buildConfigString(wanLvEnvValue("WANLV_DEBUG_USER_ID")))
         buildConfigField("String", "WANLV_DEBUG_TOKEN", buildConfigString(wanLvEnvValue("WANLV_DEBUG_TOKEN")))
     }
@@ -89,6 +93,7 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
+    implementation(libs.maplibre.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
