@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 本地/局域网联调用 HTTP，正式环境建议切换 HTTPS 后关闭 cleartext。 -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
