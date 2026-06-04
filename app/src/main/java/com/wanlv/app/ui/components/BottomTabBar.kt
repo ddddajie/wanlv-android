@@ -1,6 +1,5 @@
 package com.wanlv.app.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,25 +15,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wanlv.app.navigation.BottomNavItem
 import com.wanlv.app.ui.theme.WanLvGreen
-import com.wanlv.app.ui.theme.WanLvSurface
 import com.wanlv.app.ui.theme.WanLvTextSecondary
 
 @Composable
 fun BottomTabBar(
     items: List<BottomNavItem>,
     currentRoute: String,
-    onTabClick: (BottomNavItem) -> Unit
+    onTabClick: (BottomNavItem) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
-            .shadow(8.dp)
-            .background(WanLvSurface)
+        modifier = modifier
             .navigationBarsPadding()
             .height(64.dp)
             .fillMaxWidth()
@@ -48,17 +44,23 @@ fun BottomTabBar(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clickable { onTabClick(item) },
+                    .clickable { onTabClick(item) }
+                    .padding(vertical = 7.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
                     imageVector = item.icon,
                     contentDescription = item.title,
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(if (selected) 24.dp else 22.dp),
                     tint = color
                 )
                 Spacer(Modifier.height(3.dp))
-                Text(item.title, color = color, fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                Text(
+                    item.title,
+                    color = color,
+                    fontSize = 11.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                )
             }
         }
     }
