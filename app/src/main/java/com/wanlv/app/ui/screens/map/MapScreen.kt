@@ -371,14 +371,19 @@ private fun BindMapClick(
     spots: List<MapSpotDto>,
     onSpotClick: (MapSpotDto) -> Unit
 ) {
+    val latestSpots by rememberUpdatedState(spots)
+    val latestOnSpotClick by rememberUpdatedState(onSpotClick)
     DisposableEffect(mapView) {
         var mapRef: MapLibreMap? = null
         val listener = MapLibreMap.OnMapClickListener { latLng ->
             val map = mapRef
-            // 重点：优先从 MapLibre 点位图层命中 feature，保证图标样式变化后仍能稳定点击弹出详情。
-            val clickedSpot = map?.findClickedSpot(spots, latLng) ?: findNearestSpot(spots, latLng)
+            val currentSpots = latestSpots
+            // 重点：监听只安装一次，但点击时必须读取最新点位；否则首次空列表会导致图标永远点不开。
+            val clickedSpot = map?.findClickedSpot(currentSpots, latLng)
+                ?: map?.findNearestSpotByScreenDistance(currentSpots, latLng)
+                ?: findNearestSpot(currentSpots, latLng)
             if (clickedSpot != null) {
-                onSpotClick(clickedSpot)
+                latestOnSpotClick(clickedSpot)
                 true
             } else {
                 false
@@ -403,6 +408,22 @@ private fun MapLibreMap.findClickedSpot(spots: List<MapSpotDto>, latLng: LatLng)
         .mapNotNull { feature -> feature.getNumberProperty("id")?.toLong() }
         .firstOrNull()
     return id?.let { spotId -> spots.firstOrNull { it.id == spotId } }
+}
+
+private fun MapLibreMap.findNearestSpotByScreenDistance(spots: List<MapSpotDto>, latLng: LatLng): MapSpotDto? {
+    val clickedPoint = projection.toScreenLocation(latLng)
+    return spots
+        .asSequence()
+        .filter { it.hasValidCoordinate }
+        .map { spot ->
+            val spotPoint = projection.toScreenLocation(LatLng(spot.latitude ?: 0.0, spot.longitude ?: 0.0))
+            val dx = spotPoint.x - clickedPoint.x
+            val dy = spotPoint.y - clickedPoint.y
+            spot to dx * dx + dy * dy
+        }
+        .minByOrNull { it.second }
+        ?.takeIf { (_, distanceSquared) -> distanceSquared <= 42f * 42f }
+        ?.first
 }
 
 private fun createMapLibreView(context: Context): MapView {
