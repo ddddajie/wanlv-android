@@ -48,6 +48,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "WANLV_API_BASE_URL", buildConfigString(wanLvEnvValue("WANLV_API_BASE_URL", "http://127.0.0.1:8080")))
+        buildConfigField("String", "WANLV_DIGITAL_HUMAN_GUIDE_API_URL", buildConfigString(wanLvEnvValue("WANLV_DIGITAL_HUMAN_GUIDE_API_URL", "http://127.0.0.1:8011")))
+        buildConfigField("String", "WANLV_DIGITAL_HUMAN_SERVICE_API_URL", buildConfigString(wanLvEnvValue("WANLV_DIGITAL_HUMAN_SERVICE_API_URL", "http://127.0.0.1:8010")))
         buildConfigField("String", "WANLV_MAP_STYLE_URL", buildConfigString(wanLvEnvValue("WANLV_MAP_STYLE_URL")))
         buildConfigField("String", "WANLV_MAP_VECTOR_SOURCE_URL", buildConfigString(wanLvEnvValue("WANLV_MAP_VECTOR_SOURCE_URL", "http://10.0.2.2:3000/china")))
         buildConfigField("String", "WANLV_MAP_RASTER_TILE_URL", buildConfigString(wanLvEnvValue("WANLV_MAP_RASTER_TILE_URL")))
@@ -95,6 +97,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.maplibre.android)
     implementation(libs.haze)
+    implementation(libs.webrtc.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

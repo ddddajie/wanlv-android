@@ -1,5 +1,6 @@
 package com.wanlv.app
 
+import android.media.AudioManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +19,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppConfig.init(applicationContext)
         AuthSession.initFromConfig()
+        // 重点：数字人播报属于媒体播放，进入应用后让实体音量键默认调节媒体音量。
+        volumeControlStream = AudioManager.STREAM_MUSIC
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {

@@ -1,7 +1,9 @@
 package com.wanlv.app.ui.screens.map
 
 import android.content.Context
+import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,12 +28,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Route
@@ -41,6 +45,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -56,9 +62,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
@@ -69,6 +80,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wanlv.app.config.AppConfig
+import com.wanlv.app.network.AuthSession
 import com.wanlv.app.pojo.dto.MapBoundsDto
 import com.wanlv.app.pojo.dto.MapGeoFeatureDto
 import com.wanlv.app.pojo.dto.MapInitDto
@@ -85,6 +97,8 @@ import com.wanlv.app.ui.theme.WanLvGreenLight
 import com.wanlv.app.ui.theme.WanLvSurface
 import com.wanlv.app.ui.theme.WanLvTextPrimary
 import com.wanlv.app.ui.theme.WanLvTextSecondary
+import com.wanlv.app.viewmodel.MapDigitalHumanUiState
+import com.wanlv.app.viewmodel.MapDigitalHumanViewModel
 import com.wanlv.app.viewmodel.MapUiState
 import com.wanlv.app.viewmodel.MapViewModel
 import kotlin.math.cos
@@ -103,8 +117,13 @@ import org.maplibre.android.maps.Style
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MapScreen(viewModel: MapViewModel = viewModel()) {
+fun MapScreen(
+    viewModel: MapViewModel = viewModel(),
+    digitalHumanViewModel: MapDigitalHumanViewModel = viewModel()
+) {
     val uiState = viewModel.uiState
+    val digitalHumanState = digitalHumanViewModel.uiState
+    val isLoggedIn = AuthSession.userId != null && !AuthSession.token.isNullOrBlank()
     var showScenicPicker by remember { mutableStateOf(false) }
     var showScenicDetail by remember { mutableStateOf(false) }
     var showRoutePanel by remember { mutableStateOf(false) }
@@ -116,6 +135,10 @@ fun MapScreen(viewModel: MapViewModel = viewModel()) {
     LaunchedEffect(uiState.selectedScenicArea?.id) {
         showScenicDetail = false
         showRoutePanel = false
+    }
+
+    LaunchedEffect(isLoggedIn) {
+        if (!isLoggedIn) digitalHumanViewModel.close()
     }
 
     Box(
@@ -130,21 +153,33 @@ fun MapScreen(viewModel: MapViewModel = viewModel()) {
         )
 
         MapToolDock(
-            onSwitchMap = { showScenicPicker = true },
-            onOpenAiChat = {},
+            showAiChat = isLoggedIn,
+            onSwitchMap = {
+                showScenicPicker = true
+                showScenicDetail = false
+                showRoutePanel = false
+            },
+            onOpenAiChat = {
+                showScenicDetail = false
+                showRoutePanel = false
+                digitalHumanViewModel.toggleVisible()
+            },
             onOpenScenicDetail = {
                 showScenicDetail = !showScenicDetail
                 showRoutePanel = false
+                if (showScenicDetail) digitalHumanViewModel.close()
             },
             onOpenRoutePanel = {
                 showRoutePanel = !showRoutePanel
                 showScenicDetail = false
+                if (showRoutePanel) digitalHumanViewModel.close()
             },
             onLocateSelf = {},
             onRefresh = {
                 showScenicPicker = false
                 showScenicDetail = false
                 showRoutePanel = false
+                digitalHumanViewModel.close()
                 viewModel.refreshMap()
             },
             modifier = Modifier
@@ -166,6 +201,20 @@ fun MapScreen(viewModel: MapViewModel = viewModel()) {
                 spotCount = uiState.mapInit?.spots.orEmpty().size,
                 routeCount = uiState.recommendedRoutes.size,
                 onClose = { showScenicDetail = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = digitalHumanState.visible,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(top = 58.dp, start = 18.dp)
+        ) {
+            DigitalHumanWindow(
+                state = digitalHumanState,
+                previewBitmap = digitalHumanViewModel.previewBitmap,
+                onClose = digitalHumanViewModel::close
             )
         }
 
@@ -192,6 +241,21 @@ fun MapScreen(viewModel: MapViewModel = viewModel()) {
                 message = uiState.message,
                 onRouteClick = viewModel::toggleRoute,
                 onClose = { showRoutePanel = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = digitalHumanState.visible,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 22.dp)
+                .padding(bottom = FloatingBottomBarAvoidance + 12.dp)
+        ) {
+            DigitalHumanInputBar(
+                value = digitalHumanState.input,
+                sending = digitalHumanState.sending || digitalHumanState.connecting,
+                onValueChange = digitalHumanViewModel::updateInput,
+                onSend = { digitalHumanViewModel.sendQuestion(uiState.selectedScenicArea?.id) }
             )
         }
 
@@ -700,6 +764,7 @@ private fun findNearestSpot(spots: List<MapSpotDto>, latLng: LatLng): MapSpotDto
 
 @Composable
 private fun MapToolDock(
+    showAiChat: Boolean,
     onSwitchMap: () -> Unit,
     onOpenAiChat: () -> Unit,
     onOpenScenicDetail: () -> Unit,
@@ -714,7 +779,10 @@ private fun MapToolDock(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         LiquidGlassIconButton(Icons.Rounded.Map, "切换地图", onClick = onSwitchMap)
-        LiquidGlassIconButton(Icons.Rounded.AutoAwesome, "AI对话", enabled = false, onClick = onOpenAiChat)
+        // 重点：数字人问答依赖登录态，未登录时隐藏入口，避免用户进入后才收到接口失败。
+        if (showAiChat) {
+            LiquidGlassIconButton(Icons.Rounded.AutoAwesome, "AI对话", onClick = onOpenAiChat)
+        }
         LiquidGlassIconButton(Icons.Rounded.Info, "景区详细信息", onClick = onOpenScenicDetail)
         LiquidGlassIconButton(Icons.Rounded.Route, "景区路线推荐", onClick = onOpenRoutePanel)
         LiquidGlassIconButton(Icons.Rounded.MyLocation, "定位自己位置", enabled = false, onClick = onLocateSelf)
@@ -765,6 +833,148 @@ private fun LiquidGlassIconButton(
             tint = if (enabled) WanLvTextPrimary else WanLvTextSecondary.copy(alpha = 0.48f),
             modifier = Modifier.size(21.dp)
         )
+    }
+}
+
+@Composable
+private fun DigitalHumanWindow(
+    state: MapDigitalHumanUiState,
+    previewBitmap: Bitmap,
+    onClose: () -> Unit
+) {
+    val displayBitmap = state.videoFrame ?: previewBitmap
+    Box(
+        modifier = Modifier.size(width = 118.dp, height = 184.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            bitmap = displayBitmap.asImageBitmap(),
+            contentDescription = "数字导游",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit
+        )
+
+        if (state.connecting) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                color = WanLvGreen,
+                strokeWidth = 3.dp
+            )
+        }
+
+        if (state.connecting || state.sending || (!state.connected && state.status.isNotBlank())) {
+            Text(
+                text = state.status,
+                color = WanLvTextPrimary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White.copy(alpha = 0.68f))
+                    .border(1.dp, Color.White.copy(alpha = 0.76f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
+            )
+        }
+
+        SmallGlassCloseButton(
+            label = "关闭数字导游",
+            onClick = onClose,
+            modifier = Modifier.align(Alignment.TopEnd)
+        )
+    }
+}
+
+@Composable
+private fun DigitalHumanInputBar(
+    value: String,
+    sending: Boolean,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit
+) {
+    val canSend = value.trim().isNotEmpty() && !sending
+    LiquidGlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 430.dp),
+        cornerRadius = 26.dp,
+        padding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp),
+                enabled = !sending,
+                singleLine = true,
+                placeholder = { Text("直接向数字人提问", color = WanLvTextSecondary.copy(alpha = 0.72f), fontSize = 13.sp) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                )
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.46f))
+                    .border(1.dp, Color.White.copy(alpha = 0.76f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Mic, contentDescription = "语音输入", tint = WanLvTextSecondary, modifier = Modifier.size(19.dp))
+            }
+
+            Box(
+                modifier = Modifier
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(23.dp))
+                    // 重点：发送按钮保留液态玻璃底色，输入可发送时再用绿色强调状态。
+                    .background(if (canSend) WanLvGreen.copy(alpha = 0.78f) else WanLvGreenLight.copy(alpha = 0.42f))
+                    .border(1.dp, Color.White.copy(alpha = 0.72f), RoundedCornerShape(23.dp))
+                    .clickable(
+                        enabled = canSend,
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onSend
+                    )
+                    .padding(horizontal = 15.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (sending) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = WanLvGreen, strokeWidth = 2.dp)
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Send,
+                            contentDescription = "发送",
+                            tint = if (canSend) Color.White else WanLvTextSecondary.copy(alpha = 0.55f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            "发送",
+                            color = if (canSend) Color.White else WanLvTextSecondary.copy(alpha = 0.55f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1177,9 +1387,13 @@ private fun GlassChip(text: String, accent: Color) {
 }
 
 @Composable
-private fun SmallGlassCloseButton(label: String, onClick: () -> Unit) {
+private fun SmallGlassCloseButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(30.dp)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.52f))

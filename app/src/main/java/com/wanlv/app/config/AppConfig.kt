@@ -10,6 +10,16 @@ object AppConfig {
     val apiBaseUrl: String
         get() = values["WANLV_API_BASE_URL"].orEmpty().ifBlank { BuildConfig.WANLV_API_BASE_URL }
 
+    val digitalHumanGuideApiUrl: String
+        get() = values["WANLV_DIGITAL_HUMAN_GUIDE_API_URL"].orEmpty()
+            .ifBlank { BuildConfig.WANLV_DIGITAL_HUMAN_GUIDE_API_URL }
+            .androidReachableUrl()
+
+    val digitalHumanServiceApiUrl: String
+        get() = values["WANLV_DIGITAL_HUMAN_SERVICE_API_URL"].orEmpty()
+            .ifBlank { BuildConfig.WANLV_DIGITAL_HUMAN_SERVICE_API_URL }
+            .androidReachableUrl()
+
     val debugUserId: Long?
         get() = values["WANLV_DEBUG_USER_ID"]?.toLongOrNull()
 
@@ -52,6 +62,8 @@ object AppConfig {
 
     private fun loadBuildConfigValues() {
         values["WANLV_API_BASE_URL"] = BuildConfig.WANLV_API_BASE_URL
+        values["WANLV_DIGITAL_HUMAN_GUIDE_API_URL"] = BuildConfig.WANLV_DIGITAL_HUMAN_GUIDE_API_URL
+        values["WANLV_DIGITAL_HUMAN_SERVICE_API_URL"] = BuildConfig.WANLV_DIGITAL_HUMAN_SERVICE_API_URL
         values["WANLV_MAP_STYLE_URL"] = BuildConfig.WANLV_MAP_STYLE_URL
         values["WANLV_MAP_VECTOR_SOURCE_URL"] = BuildConfig.WANLV_MAP_VECTOR_SOURCE_URL
         values["WANLV_MAP_RASTER_TILE_URL"] = BuildConfig.WANLV_MAP_RASTER_TILE_URL
