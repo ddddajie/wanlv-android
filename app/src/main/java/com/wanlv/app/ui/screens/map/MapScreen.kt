@@ -2,6 +2,11 @@ package com.wanlv.app.ui.screens.map
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.Color as AndroidColor
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -324,6 +329,7 @@ private fun MapLibreGuideMap(
                 if (lastStyleJson != styleJson) {
                     // 业务图层也写入同一个 style，确保底图、路线、景点保持同一套 WebMercator 坐标体系。
                     map.setStyle(Style.Builder().fromJson(styleJson)) { style ->
+                        registerSpotIconImages(context, style)
                         moveCameraToScenicArea(map, uiState.mapInit?.scenicArea, centeredScenicAreaId)
                         centeredScenicAreaId = uiState.mapInit?.scenicArea?.id ?: centeredScenicAreaId
                     }
@@ -368,9 +374,11 @@ private fun BindMapClick(
     DisposableEffect(mapView) {
         var mapRef: MapLibreMap? = null
         val listener = MapLibreMap.OnMapClickListener { latLng ->
-            val nearestSpot = findNearestSpot(spots, latLng)
-            if (nearestSpot != null) {
-                onSpotClick(nearestSpot)
+            val map = mapRef
+            // 重点：优先从 MapLibre 点位图层命中 feature，保证图标样式变化后仍能稳定点击弹出详情。
+            val clickedSpot = map?.findClickedSpot(spots, latLng) ?: findNearestSpot(spots, latLng)
+            if (clickedSpot != null) {
+                onSpotClick(clickedSpot)
                 true
             } else {
                 false
@@ -384,6 +392,17 @@ private fun BindMapClick(
             mapRef?.removeOnMapClickListener(listener)
         }
     }
+}
+
+private fun MapLibreMap.findClickedSpot(spots: List<MapSpotDto>, latLng: LatLng): MapSpotDto? {
+    val point = projection.toScreenLocation(latLng)
+    val queryArea = RectF(point.x - 24f, point.y - 24f, point.x + 24f, point.y + 24f)
+    val features = queryRenderedFeatures(queryArea, "spot-icon", "spot-label")
+    val id = features
+        .asSequence()
+        .mapNotNull { feature -> feature.getNumberProperty("id")?.toLong() }
+        .firstOrNull()
+    return id?.let { spotId -> spots.firstOrNull { it.id == spotId } }
 }
 
 private fun createMapLibreView(context: Context): MapView {
@@ -448,7 +467,7 @@ private fun buildMapStyleJson(uiState: MapUiState): String {
         .put(fillLayerFromGeoJson("bounds-fill", BoundsSourceId))
         .put(lineLayerFromGeoJson("bounds-line", BoundsSourceId, JSONArray().put(2).put(1.2)))
         .put(lineLayerFromGeoJson("route-line", RouteSourceId))
-        .put(spotCircleLayer("spot-marker", SpotSourceId))
+        .put(spotIconLayer("spot-icon", SpotSourceId))
         .put(symbolLayer("spot-label", SpotSourceId))
 
     return JSONObject()
@@ -478,6 +497,188 @@ private fun imageSource(imageUrl: String?, bounds: MapBoundsDto?): JSONObject? {
                 .put(JSONArray().put(bounds.east).put(bounds.south))
                 .put(JSONArray().put(bounds.west).put(bounds.south))
         )
+}
+
+private fun registerSpotIconImages(context: Context, style: Style) {
+    val density = context.resources.displayMetrics.density
+    val images = HashMap<String, Bitmap>()
+    MapSpotIconRules.allStyles.forEach { icon ->
+        images[icon.imageId] = createSpotIconBitmap(icon, density)
+    }
+    // 重点：景点标注使用 MapLibre 原生 bitmap icon，避免文字占位图标显得粗糙。
+    style.addImages(images)
+}
+
+private fun createSpotIconBitmap(icon: MapSpotIconStyle, density: Float): Bitmap {
+    val size = (30f * density).toInt().coerceAtLeast(30)
+    val padding = 5f * density
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val color = AndroidColor.parseColor(icon.color)
+    val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.95f * density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        this.color = color
+    }
+    val iconFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        this.color = color
+    }
+
+    val bounds = RectF(
+        padding,
+        padding,
+        size - padding,
+        size - padding
+    )
+    drawSpotIcon(canvas, icon.type, bounds, iconPaint, iconFillPaint)
+    return bitmap
+}
+
+private fun drawSpotIcon(canvas: Canvas, type: String, bounds: RectF, paint: Paint, fillPaint: Paint) {
+    when (type) {
+        "TRAFFIC" -> drawTrafficIcon(canvas, bounds, paint)
+        "LOCATION" -> drawLocationIcon(canvas, bounds, paint)
+        "ENTRANCE" -> drawEntranceIcon(canvas, bounds, paint)
+        "SERVICE" -> drawServiceIcon(canvas, bounds, paint)
+        "DINING" -> drawDiningIcon(canvas, bounds, paint)
+        "BUILDING" -> drawBuildingIcon(canvas, bounds, paint)
+        "PARKING" -> drawParkingIcon(canvas, bounds, paint)
+        "SCENIC_SPOT" -> drawScenicIcon(canvas, bounds, paint)
+        "SERVICE_CENTER" -> drawServiceCenterIcon(canvas, bounds, paint, fillPaint)
+        "RESTROOM" -> drawRestroomIcon(canvas, bounds, paint, fillPaint)
+        "RESTAURANT" -> drawRestaurantIcon(canvas, bounds, paint)
+        "SHOP" -> drawShopIcon(canvas, bounds, paint)
+        "TRANSPORT" -> drawTransportIcon(canvas, bounds, paint, fillPaint)
+        else -> drawScenicIcon(canvas, bounds, paint)
+    }
+}
+
+private fun drawTrafficIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    val poleX = r.left + r.width() * 0.36f
+    canvas.drawLine(poleX, r.top + r.height() * 0.2f, poleX, r.bottom, paint)
+    canvas.drawRoundRect(RectF(poleX, r.top + r.height() * 0.2f, r.right, r.top + r.height() * 0.48f), 3f, 3f, paint)
+    canvas.drawLine(poleX, r.top + r.height() * 0.62f, r.right - r.width() * 0.1f, r.top + r.height() * 0.62f, paint)
+    canvas.drawLine(r.right - r.width() * 0.1f, r.top + r.height() * 0.62f, r.right - r.width() * 0.25f, r.top + r.height() * 0.5f, paint)
+}
+
+private fun drawLocationIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    val path = Path().apply {
+        moveTo(r.centerX(), r.bottom)
+        cubicTo(r.left, r.top + r.height() * 0.58f, r.left + r.width() * 0.08f, r.top, r.centerX(), r.top)
+        cubicTo(r.right - r.width() * 0.08f, r.top, r.right, r.top + r.height() * 0.58f, r.centerX(), r.bottom)
+    }
+    canvas.drawPath(path, paint)
+    canvas.drawCircle(r.centerX(), r.top + r.height() * 0.38f, r.width() * 0.14f, paint)
+}
+
+private fun drawEntranceIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    val door = RectF(r.left + r.width() * 0.18f, r.top + r.height() * 0.16f, r.right - r.width() * 0.18f, r.bottom)
+    canvas.drawRoundRect(door, 3f, 3f, paint)
+    canvas.drawLine(r.centerX(), door.top + door.height() * 0.12f, r.centerX(), door.bottom, paint)
+    canvas.drawLine(r.left, r.centerY(), r.centerX() + r.width() * 0.16f, r.centerY(), paint)
+    canvas.drawLine(r.centerX() + r.width() * 0.16f, r.centerY(), r.centerX(), r.centerY() - r.height() * 0.13f, paint)
+    canvas.drawLine(r.centerX() + r.width() * 0.16f, r.centerY(), r.centerX(), r.centerY() + r.height() * 0.13f, paint)
+}
+
+private fun drawServiceIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    canvas.drawArc(RectF(r.left, r.top + r.height() * 0.12f, r.right, r.bottom), 200f, 140f, false, paint)
+    canvas.drawRoundRect(RectF(r.left, r.centerY(), r.left + r.width() * 0.18f, r.bottom - r.height() * 0.2f), 3f, 3f, paint)
+    canvas.drawRoundRect(RectF(r.right - r.width() * 0.18f, r.centerY(), r.right, r.bottom - r.height() * 0.2f), 3f, 3f, paint)
+    canvas.drawLine(r.right - r.width() * 0.1f, r.bottom - r.height() * 0.22f, r.centerX() + r.width() * 0.08f, r.bottom - r.height() * 0.08f, paint)
+}
+
+private fun drawDiningIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    val forkX = r.left + r.width() * 0.28f
+    canvas.drawLine(forkX, r.top, forkX, r.bottom, paint)
+    canvas.drawLine(forkX - r.width() * 0.12f, r.top, forkX - r.width() * 0.12f, r.top + r.height() * 0.32f, paint)
+    canvas.drawLine(forkX, r.top, forkX, r.top + r.height() * 0.34f, paint)
+    canvas.drawLine(forkX + r.width() * 0.12f, r.top, forkX + r.width() * 0.12f, r.top + r.height() * 0.32f, paint)
+    val spoonX = r.right - r.width() * 0.25f
+    canvas.drawOval(RectF(spoonX - r.width() * 0.13f, r.top, spoonX + r.width() * 0.13f, r.top + r.height() * 0.32f), paint)
+    canvas.drawLine(spoonX, r.top + r.height() * 0.32f, spoonX, r.bottom, paint)
+}
+
+private fun drawBuildingIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    val path = Path().apply {
+        moveTo(r.left, r.centerY() - r.height() * 0.05f)
+        lineTo(r.centerX(), r.top)
+        lineTo(r.right, r.centerY() - r.height() * 0.05f)
+        lineTo(r.right, r.bottom)
+        lineTo(r.left, r.bottom)
+        close()
+    }
+    canvas.drawPath(path, paint)
+    canvas.drawLine(r.centerX(), r.bottom, r.centerX(), r.centerY() + r.height() * 0.1f, paint)
+}
+
+private fun drawParkingIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    val car = RectF(r.left + r.width() * 0.08f, r.centerY() - r.height() * 0.05f, r.right - r.width() * 0.08f, r.bottom - r.height() * 0.18f)
+    val roof = Path().apply {
+        moveTo(r.left + r.width() * 0.25f, car.top)
+        lineTo(r.left + r.width() * 0.38f, r.top + r.height() * 0.22f)
+        lineTo(r.right - r.width() * 0.32f, r.top + r.height() * 0.22f)
+        lineTo(r.right - r.width() * 0.18f, car.top)
+    }
+    canvas.drawPath(roof, paint)
+    canvas.drawRoundRect(car, 4f, 4f, paint)
+    canvas.drawCircle(r.left + r.width() * 0.28f, r.bottom - r.height() * 0.15f, r.width() * 0.08f, paint)
+    canvas.drawCircle(r.right - r.width() * 0.28f, r.bottom - r.height() * 0.15f, r.width() * 0.08f, paint)
+}
+
+private fun drawScenicIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    val path = Path().apply {
+        moveTo(r.left, r.bottom)
+        lineTo(r.left + r.width() * 0.34f, r.centerY())
+        lineTo(r.left + r.width() * 0.48f, r.centerY() + r.height() * 0.16f)
+        lineTo(r.right - r.width() * 0.18f, r.top + r.height() * 0.18f)
+        lineTo(r.right, r.bottom)
+    }
+    canvas.drawPath(path, paint)
+    canvas.drawCircle(r.right - r.width() * 0.14f, r.top + r.height() * 0.16f, r.width() * 0.09f, paint)
+}
+
+private fun drawServiceCenterIcon(canvas: Canvas, r: RectF, paint: Paint, fillPaint: Paint) {
+    canvas.drawCircle(r.centerX(), r.top + r.height() * 0.22f, r.width() * 0.16f, paint)
+    canvas.drawRoundRect(RectF(r.left + r.width() * 0.2f, r.centerY(), r.right - r.width() * 0.2f, r.bottom), 8f, 8f, paint)
+    canvas.drawLine(r.right - r.width() * 0.05f, r.top, r.right - r.width() * 0.05f, r.bottom - r.height() * 0.2f, paint)
+    canvas.drawCircle(r.right - r.width() * 0.05f, r.top + r.height() * 0.08f, r.width() * 0.04f, fillPaint)
+}
+
+private fun drawRestroomIcon(canvas: Canvas, r: RectF, paint: Paint, fillPaint: Paint) {
+    canvas.drawCircle(r.left + r.width() * 0.32f, r.top + r.height() * 0.16f, r.width() * 0.08f, fillPaint)
+    canvas.drawCircle(r.right - r.width() * 0.32f, r.top + r.height() * 0.16f, r.width() * 0.08f, fillPaint)
+    canvas.drawLine(r.left + r.width() * 0.32f, r.top + r.height() * 0.3f, r.left + r.width() * 0.32f, r.bottom, paint)
+    val skirt = Path().apply {
+        moveTo(r.right - r.width() * 0.32f, r.top + r.height() * 0.3f)
+        lineTo(r.right - r.width() * 0.5f, r.bottom - r.height() * 0.16f)
+        lineTo(r.right - r.width() * 0.14f, r.bottom - r.height() * 0.16f)
+        close()
+    }
+    canvas.drawPath(skirt, paint)
+}
+
+private fun drawRestaurantIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    canvas.drawArc(RectF(r.left + r.width() * 0.1f, r.centerY() - r.height() * 0.1f, r.right - r.width() * 0.1f, r.bottom + r.height() * 0.35f), 190f, 160f, false, paint)
+    canvas.drawLine(r.left + r.width() * 0.12f, r.bottom - r.height() * 0.12f, r.right - r.width() * 0.12f, r.bottom - r.height() * 0.12f, paint)
+    canvas.drawLine(r.centerX(), r.top + r.height() * 0.18f, r.centerX(), r.top, paint)
+    canvas.drawArc(RectF(r.left + r.width() * 0.1f, r.top + r.height() * 0.08f, r.right - r.width() * 0.1f, r.centerY() + r.height() * 0.2f), 200f, 140f, false, paint)
+}
+
+private fun drawShopIcon(canvas: Canvas, r: RectF, paint: Paint) {
+    val bag = RectF(r.left + r.width() * 0.12f, r.top + r.height() * 0.28f, r.right - r.width() * 0.12f, r.bottom)
+    canvas.drawRoundRect(bag, 4f, 4f, paint)
+    canvas.drawArc(RectF(r.left + r.width() * 0.32f, r.top, r.right - r.width() * 0.32f, r.top + r.height() * 0.42f), 180f, 180f, false, paint)
+}
+
+private fun drawTransportIcon(canvas: Canvas, r: RectF, paint: Paint, fillPaint: Paint) {
+    val bus = RectF(r.left + r.width() * 0.1f, r.top + r.height() * 0.1f, r.right - r.width() * 0.1f, r.bottom - r.height() * 0.18f)
+    canvas.drawRoundRect(bus, 5f, 5f, paint)
+    canvas.drawLine(bus.left + r.width() * 0.1f, r.centerY(), bus.right - r.width() * 0.1f, r.centerY(), paint)
+    canvas.drawCircle(bus.left + r.width() * 0.18f, r.bottom - r.height() * 0.14f, r.width() * 0.07f, fillPaint)
+    canvas.drawCircle(bus.right - r.width() * 0.18f, r.bottom - r.height() * 0.14f, r.width() * 0.07f, fillPaint)
 }
 
 private fun backgroundLayer(color: String): JSONObject =
@@ -596,10 +797,25 @@ private fun spotCircleLayer(id: String, sourceId: String): JSONObject =
             "paint",
             JSONObject()
                 .put("circle-radius", propertyExpression("markerRadius"))
-                .put("circle-color", propertyExpression("markerColor"))
-                .put("circle-opacity", 0.95)
-                .put("circle-stroke-color", "#FFFFFF")
+                .put("circle-color", propertyExpression("markerBackground"))
+                .put("circle-opacity", 0.96)
+                .put("circle-stroke-color", propertyExpression("markerColor"))
                 .put("circle-stroke-width", propertyExpression("markerStrokeWidth"))
+        )
+
+private fun spotIconLayer(id: String, sourceId: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "symbol")
+        .put("source", sourceId)
+        .put(
+            "layout",
+            JSONObject()
+                .put("icon-image", propertyExpression("iconImage"))
+                .put("icon-size", propertyExpression("iconScale"))
+                .put("icon-anchor", "center")
+                .put("icon-allow-overlap", true)
+                .put("icon-ignore-placement", true)
         )
 
 private fun symbolLayer(id: String, sourceId: String): JSONObject =
@@ -612,7 +828,7 @@ private fun symbolLayer(id: String, sourceId: String): JSONObject =
             JSONObject()
                 .put("text-field", JSONArray().put("get").put("name"))
                 .put("text-size", 12)
-                .put("text-offset", JSONArray().put(0).put(0.45))
+                .put("text-offset", JSONArray().put(0).put(0.95))
                 .put("text-anchor", "top")
                 .put("text-font", JSONArray().put("Noto Sans Regular"))
         )
@@ -650,6 +866,8 @@ private fun buildBoundsFeatureCollection(bounds: MapBoundsDto?): JSONObject {
 private fun buildSpotFeatureCollection(spots: List<MapSpotDto>, selectedSpotId: Long?): JSONObject {
     val features = JSONArray()
     spots.filter { it.hasValidCoordinate }.forEach { spot ->
+        val selected = spot.id == selectedSpotId
+        val icon = MapSpotIconRules.resolve(spot.iconType, spot.poiType)
         val geometry = JSONObject()
             .put("type", "Point")
             .put("coordinates", JSONArray().put(spot.longitude).put(spot.latitude))
@@ -657,11 +875,15 @@ private fun buildSpotFeatureCollection(spots: List<MapSpotDto>, selectedSpotId: 
             // 景点点位放进 MapLibre 原生图层，拖拽时和底图同帧渲染，避免 Compose 叠层追随相机产生晃动。
             .put("id", spot.id)
             .put("name", spot.spotName)
-            .put("type", spot.poiType ?: "spot")
+            .put("type", spot.poiType ?: icon.type)
+            .put("iconType", icon.type)
+            .put("iconImage", icon.imageId)
             .put("textColor", MapColorRules.SpotText)
-            .put("markerColor", MapColorRules.spotMarkerColor(spot.iconType))
-            .put("markerRadius", if (spot.id == selectedSpotId) 10 else 7)
-            .put("markerStrokeWidth", if (spot.id == selectedSpotId) 3 else 2)
+            .put("markerColor", icon.color)
+            .put("markerBackground", if (selected) icon.selectedBackground else icon.background)
+            .put("markerRadius", if (selected) 17 else 0)
+            .put("markerStrokeWidth", if (selected) 2.2 else 0)
+            .put("iconScale", if (selected) 1.08 else 1.0)
         features.put(feature(geometry, properties))
     }
     return featureCollection(features)
@@ -1703,6 +1925,61 @@ private object MapColorRules {
         } else {
             "#f97316"
         }
+}
+
+private data class MapSpotIconStyle(
+    val type: String,
+    val imageId: String,
+    val color: String,
+    val background: String,
+    val selectedBackground: String
+)
+
+private object MapSpotIconRules {
+    private val styles = mapOf(
+        "TRAFFIC" to MapSpotIconStyle("TRAFFIC", "spot-icon-traffic", "#3B82F6", "#EFF6FF", "#DBEAFE"),
+        "LOCATION" to MapSpotIconStyle("LOCATION", "spot-icon-location", "#64748B", "#F8FAFC", "#E2E8F0"),
+        "ENTRANCE" to MapSpotIconStyle("ENTRANCE", "spot-icon-entrance", "#F59E0B", "#FFFBEB", "#FEF3C7"),
+        "SERVICE" to MapSpotIconStyle("SERVICE", "spot-icon-service", "#0EA5E9", "#F0F9FF", "#E0F2FE"),
+        "DINING" to MapSpotIconStyle("DINING", "spot-icon-dining", "#F97316", "#FFF7ED", "#FFEDD5"),
+        "BUILDING" to MapSpotIconStyle("BUILDING", "spot-icon-building", "#64748B", "#F8FAFC", "#E2E8F0"),
+        "PARKING" to MapSpotIconStyle("PARKING", "spot-icon-parking", "#64748B", "#F8FAFC", "#E2E8F0"),
+        "SCENIC_SPOT" to MapSpotIconStyle("SCENIC_SPOT", "spot-icon-scenic", "#0F766E", "#ECFDF5", "#CCFBF1"),
+        "SERVICE_CENTER" to MapSpotIconStyle("SERVICE_CENTER", "spot-icon-service-center", "#0284C7", "#F0F9FF", "#E0F2FE"),
+        "RESTROOM" to MapSpotIconStyle("RESTROOM", "spot-icon-restroom", "#7C3AED", "#F5F3FF", "#EDE9FE"),
+        "RESTAURANT" to MapSpotIconStyle("RESTAURANT", "spot-icon-restaurant", "#DC2626", "#FEF2F2", "#FEE2E2"),
+        "SHOP" to MapSpotIconStyle("SHOP", "spot-icon-shop", "#DB2777", "#FDF2F8", "#FCE7F3"),
+        "TRANSPORT" to MapSpotIconStyle("TRANSPORT", "spot-icon-transport", "#0EA5E9", "#F0F9FF", "#E0F2FE")
+    )
+
+    val allStyles: Collection<MapSpotIconStyle> = styles.values
+
+    fun resolve(iconType: String?, poiType: String?): MapSpotIconStyle {
+        val type = normalize(iconType).ifBlank { normalize(poiType) }
+        return styles[type] ?: styles.getValue("SCENIC_SPOT")
+    }
+
+    private fun normalize(value: String?): String {
+        val raw = value.orEmpty().trim().uppercase()
+        if (raw.isBlank()) return ""
+        // 重点：兼容后台 13 类图标类型，也兜底处理常见中文/英文别名，避免新旧数据混用时又退回绿色圆点。
+        return when (raw) {
+            "TRAFFIC", "GUIDE", "SIGN", "SIGNAGE", "交通指引" -> "TRAFFIC"
+            "LOCATION", "POSITION", "定位", "景点定位" -> "LOCATION"
+            "ENTRANCE", "GATE", "ENTRY", "EXIT", "入口", "入口标识" -> "ENTRANCE"
+            "SERVICE", "SERVICE_FACILITY", "FACILITY", "服务", "服务设施" -> "SERVICE"
+            "DINING", "FOOD", "DRINK", "餐饮" -> "DINING"
+            "BUILDING", "ARCHITECTURE", "HOUSE", "建筑" -> "BUILDING"
+            "PARKING", "PARK", "停车" -> "PARKING"
+            "SCENIC_SPOT", "SPOT", "SCENIC", "ATTRACTION", "景点" -> "SCENIC_SPOT"
+            "SERVICE_CENTER", "VISITOR_CENTER", "TOURIST_CENTER", "游客中心" -> "SERVICE_CENTER"
+            "RESTROOM", "TOILET", "WC", "BATHROOM", "卫生间" -> "RESTROOM"
+            "RESTAURANT", "餐厅" -> "RESTAURANT"
+            "SHOP", "STORE", "MALL", "商店" -> "SHOP"
+            "TRANSPORT", "BUS", "SHUTTLE", "交通" -> "TRANSPORT"
+            else -> raw
+        }
+    }
 }
 
 private fun String.androidReachableMapUrl(): String =
