@@ -30,10 +30,14 @@ class MapViewModel(
     var uiState by mutableStateOf(MapUiState(loading = true, message = "正在加载导游地图..."))
         private set
 
-    fun loadMap() {
-        if (uiState.scenicAreas.isNotEmpty() || uiState.loading.not() && uiState.mapInit != null) return
+    fun loadMap(forceRefresh: Boolean = false) {
+        if (!forceRefresh && (uiState.scenicAreas.isNotEmpty() || uiState.loading.not() && uiState.mapInit != null)) return
         viewModelScope.launch {
-            uiState = uiState.copy(loading = true, message = "正在加载景区列表...")
+            uiState = if (forceRefresh) {
+                MapUiState(loading = true, message = "正在刷新地图...")
+            } else {
+                uiState.copy(loading = true, message = "正在加载景区列表...")
+            }
             runCatching { mapRepository.pageScenicAreas(pageSize = 100) }
                 .onSuccess { page ->
                     val first = page.records.firstOrNull()
@@ -51,6 +55,10 @@ class MapViewModel(
                     )
                 }
         }
+    }
+
+    fun refreshMap() {
+        loadMap(forceRefresh = true)
     }
 
     fun selectScenicArea(area: ScenicAreaDto) {

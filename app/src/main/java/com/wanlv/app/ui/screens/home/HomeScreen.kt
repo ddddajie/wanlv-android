@@ -2,6 +2,7 @@ package com.wanlv.app.ui.screens.home
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
@@ -27,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -40,11 +43,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.wanlv.app.R
 import com.wanlv.app.model.ScenicSpot
-import com.wanlv.app.ui.components.IOSCard
+import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
 import com.wanlv.app.ui.components.ImageGradientMask
 import com.wanlv.app.ui.components.SectionHeader
 import com.wanlv.app.ui.theme.WanLvBackground
 import com.wanlv.app.ui.theme.WanLvGreen
+import com.wanlv.app.ui.theme.WanLvGreenLight
+import com.wanlv.app.ui.theme.WanLvMint
 import com.wanlv.app.ui.theme.WanLvTextPrimary
 import com.wanlv.app.ui.theme.WanLvTextSecondary
 import com.wanlv.app.viewmodel.HomeViewModel
@@ -60,7 +65,7 @@ fun HomeScreen(
             .fillMaxSize()
             .background(WanLvBackground)
             .verticalScroll(rememberScrollState())
-            .padding(bottom = 18.dp)
+            .padding(bottom = FloatingBottomBarAvoidance)
     ) {
         HomeTopBar()
         SectionHeader("游客必玩", modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp))
@@ -76,33 +81,105 @@ fun HomeScreen(
         }
         SectionHeader("精选推荐路线", modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp))
         viewModel.scenicSpots.take(3).forEach { spot ->
-            IOSCard(
+            RecommendedRouteGlassCard(spot = spot)
+        }
+    }
+}
+
+@Composable
+private fun RecommendedRouteGlassCard(spot: ScenicSpot) {
+    val glassShape = RoundedCornerShape(22.dp)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 6.dp)
+            .shadow(
+                elevation = 18.dp,
+                shape = glassShape,
+                ambientColor = Color(0xFF9AA3AD).copy(alpha = 0.18f),
+                spotColor = Color(0xFF64707C).copy(alpha = 0.12f)
+            )
+            .clip(glassShape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.84f),
+                        WanLvMint.copy(alpha = 0.64f),
+                        Color.White.copy(alpha = 0.70f)
+                    )
+                )
+            )
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.76f),
+                shape = glassShape
+            )
+    ) {
+        // 重点：用半透明高光和柔和色块叠加出液态玻璃的流动质感。
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 10.dp, end = 22.dp)
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(WanLvGreenLight.copy(alpha = 0.11f))
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 112.dp, bottom = 8.dp)
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.54f))
+        )
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 6.dp),
-                cornerRadius = 20.dp
+                    .height(66.dp)
+                    .width(84.dp)
+                    .shadow(
+                        elevation = 8.dp,
+                        shape = RoundedCornerShape(17.dp),
+                        ambientColor = Color(0xFF000000).copy(alpha = 0.08f),
+                        spotColor = Color(0xFF000000).copy(alpha = 0.06f)
+                    )
+                    .clip(RoundedCornerShape(17.dp))
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .height(64.dp)
-                            .width(82.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                    ) {
-                        // 推荐路线默认图使用用户新增的 tjlx 资源。
-                        Image(
-                            painter = painterResource(id = R.drawable.tjlx),
-                            contentDescription = "推荐路线",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                        ImageGradientMask(seed = spot.name)
-                    }
-                    Column(Modifier.padding(start = 12.dp)) {
-                        Text("${spot.name} 推荐路线", color = WanLvTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("${spot.tag} · ${spot.location}", color = WanLvTextSecondary, fontSize = 13.sp)
-                    }
-                }
+                // 推荐路线默认图使用用户新增的 tjlx 资源。
+                Image(
+                    painter = painterResource(id = R.drawable.tjlx),
+                    contentDescription = "推荐路线",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                ImageGradientMask(seed = spot.name)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White.copy(alpha = 0.08f))
+                )
+            }
+            Column(Modifier.padding(start = 13.dp)) {
+                Text(
+                    text = "${spot.name} 推荐路线",
+                    color = WanLvTextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "${spot.tag} · ${spot.location}",
+                    color = WanLvTextSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

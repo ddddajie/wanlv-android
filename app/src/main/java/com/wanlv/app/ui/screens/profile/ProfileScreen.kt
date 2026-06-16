@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wanlv.app.data.MockData
 import com.wanlv.app.network.AuthSession
+import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
 import com.wanlv.app.ui.components.IOSCard
 import com.wanlv.app.ui.components.SectionHeader
 import com.wanlv.app.ui.theme.WanLvBackground
@@ -92,7 +93,7 @@ fun ProfileScreen(viewModel: ProfileViewModel = viewModel()) {
                 ProfileAction(Icons.Rounded.Tour, "已取消")
             )
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(FloatingBottomBarAvoidance))
     }
 }
 

@@ -2,35 +2,44 @@ package com.wanlv.app.ui.screens.map
 
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Route
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -44,10 +53,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -62,6 +76,7 @@ import com.wanlv.app.pojo.dto.MapRouteDto
 import com.wanlv.app.pojo.dto.MapScenicAreaDto
 import com.wanlv.app.pojo.dto.MapSpotDto
 import com.wanlv.app.pojo.dto.ScenicAreaDto
+import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
 import com.wanlv.app.ui.components.IOSCard
 import com.wanlv.app.ui.theme.WanLvBackground
 import com.wanlv.app.ui.theme.WanLvDivider
@@ -91,9 +106,16 @@ import org.maplibre.android.maps.Style
 fun MapScreen(viewModel: MapViewModel = viewModel()) {
     val uiState = viewModel.uiState
     var showScenicPicker by remember { mutableStateOf(false) }
+    var showScenicDetail by remember { mutableStateOf(false) }
+    var showRoutePanel by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.loadMap()
+    }
+
+    LaunchedEffect(uiState.selectedScenicArea?.id) {
+        showScenicDetail = false
+        showRoutePanel = false
     }
 
     Box(
@@ -108,26 +130,70 @@ fun MapScreen(viewModel: MapViewModel = viewModel()) {
         )
 
         MapToolDock(
-            onOpenSettings = { showScenicPicker = true },
+            onSwitchMap = { showScenicPicker = true },
+            onOpenAiChat = {},
+            onOpenScenicDetail = {
+                showScenicDetail = !showScenicDetail
+                showRoutePanel = false
+            },
+            onOpenRoutePanel = {
+                showRoutePanel = !showRoutePanel
+                showScenicDetail = false
+            },
+            onLocateSelf = {},
+            onRefresh = {
+                showScenicPicker = false
+                showScenicDetail = false
+                showRoutePanel = false
+                viewModel.refreshMap()
+            },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(top = 16.dp, end = 14.dp)
         )
 
-        MapLegend(
+        AnimatedVisibility(
+            visible = showScenicDetail,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 18.dp, start = 14.dp)
-        )
+                .padding(top = 14.dp, start = 14.dp, end = 78.dp)
+        ) {
+            ScenicDetailPanel(
+                area = uiState.mapInit?.scenicArea,
+                selectedArea = uiState.selectedScenicArea,
+                spotCount = uiState.mapInit?.spots.orEmpty().size,
+                routeCount = uiState.recommendedRoutes.size,
+                onClose = { showScenicDetail = false }
+            )
+        }
 
-        MapBottomOverlay(
-            uiState = uiState,
-            onRouteClick = viewModel::toggleRoute,
-            onCloseSpot = { viewModel.selectSpot(null) },
+        AnimatedVisibility(
+            visible = uiState.selectedSpot != null && !showRoutePanel,
             modifier = Modifier.align(Alignment.BottomCenter)
-        )
+        ) {
+            MapBottomOverlay(
+                uiState = uiState,
+                onCloseSpot = { viewModel.selectSpot(null) }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showRoutePanel,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 14.dp)
+                .padding(bottom = FloatingBottomBarAvoidance)
+        ) {
+            RouteRecommendationPanel(
+                routes = uiState.recommendedRoutes,
+                visibleRouteIds = uiState.visibleRouteIds,
+                message = uiState.message,
+                onRouteClick = viewModel::toggleRoute,
+                onClose = { showRoutePanel = false }
+            )
+        }
 
         AnimatedVisibility(
             visible = uiState.loading,
@@ -146,7 +212,9 @@ fun MapScreen(viewModel: MapViewModel = viewModel()) {
         ModalBottomSheet(
             onDismissRequest = { showScenicPicker = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = WanLvSurface
+            containerColor = Color.Transparent,
+            tonalElevation = 0.dp,
+            dragHandle = null
         ) {
             ScenicPickerSheet(
                 scenicAreas = uiState.scenicAreas,
@@ -631,107 +699,96 @@ private fun findNearestSpot(spots: List<MapSpotDto>, latLng: LatLng): MapSpotDto
 }
 
 @Composable
-private fun MapLegend(modifier: Modifier = Modifier) {
-    val items = listOf(
-        "步行道路" to Color(0xFFCBD5E1),
-        "车行道路" to Color(0xFFFDBA74),
-        "游览步道" to Color(0xFF86EFAC),
-        "服务通道" to Color(0xFF93C5FD)
-    )
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
-        color = WanLvSurface.copy(alpha = 0.84f),
-        shadowElevation = 6.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            items.forEach { (label, color) ->
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(width = 18.dp, height = 4.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(color)
-                    )
-                    Text(label, color = WanLvTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun MapToolDock(
-    onOpenSettings: () -> Unit,
+    onSwitchMap: () -> Unit,
+    onOpenAiChat: () -> Unit,
+    onOpenScenicDetail: () -> Unit,
+    onOpenRoutePanel: () -> Unit,
+    onLocateSelf: () -> Unit,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
+    Column(
         modifier = modifier,
-        shape = RoundedCornerShape(26.dp),
-        color = WanLvSurface.copy(alpha = 0.86f),
-        shadowElevation = 8.dp
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            MapIconButton(Icons.Rounded.Settings, "设置", onOpenSettings)
-            MapIconButton(Icons.Rounded.Layers, "图层") {}
-            MapIconButton(Icons.Rounded.Route, "路线") {}
-            MapIconButton(Icons.Rounded.MyLocation, "定位") {}
-        }
+        LiquidGlassIconButton(Icons.Rounded.Map, "切换地图", onClick = onSwitchMap)
+        LiquidGlassIconButton(Icons.Rounded.AutoAwesome, "AI对话", enabled = false, onClick = onOpenAiChat)
+        LiquidGlassIconButton(Icons.Rounded.Info, "景区详细信息", onClick = onOpenScenicDetail)
+        LiquidGlassIconButton(Icons.Rounded.Route, "景区路线推荐", onClick = onOpenRoutePanel)
+        LiquidGlassIconButton(Icons.Rounded.MyLocation, "定位自己位置", enabled = false, onClick = onLocateSelf)
+        LiquidGlassIconButton(Icons.Rounded.Refresh, "刷新", onClick = onRefresh)
     }
 }
 
 @Composable
-private fun MapIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun LiquidGlassIconButton(
+    icon: ImageVector,
     label: String,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
+    val shape = CircleShape
     Box(
         modifier = Modifier
-            .size(38.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
+            // 重点：右侧地图小组件按钮整体缩小，减少对地图内容的遮挡。
+            .size(40.dp)
+            .shadow(
+                elevation = 12.dp,
+                shape = shape,
+                ambientColor = Color(0xFF8A96A3).copy(alpha = 0.22f),
+                spotColor = Color(0xFF5F6873).copy(alpha = 0.16f)
+            )
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = if (enabled) 0.82f else 0.58f),
+                        WanLvSurface.copy(alpha = if (enabled) 0.64f else 0.42f),
+                        Color.White.copy(alpha = if (enabled) 0.72f else 0.48f)
+                    )
+                )
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.74f), shape)
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = label, tint = WanLvTextPrimary, modifier = Modifier.size(21.dp))
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (enabled) WanLvTextPrimary else WanLvTextSecondary.copy(alpha = 0.48f),
+            modifier = Modifier.size(21.dp)
+        )
     }
 }
 
 @Composable
 private fun MapBottomOverlay(
     uiState: MapUiState,
-    onRouteClick: (MapRouteDto) -> Unit,
     onCloseSpot: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val spot = uiState.selectedSpot ?: return
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp)
+            .padding(bottom = FloatingBottomBarAvoidance),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        uiState.selectedSpot?.let { spot ->
-            SpotInfoCard(spot = spot, onClose = onCloseSpot)
-        }
-        RouteStrip(
-            routes = uiState.recommendedRoutes,
-            visibleRouteIds = uiState.visibleRouteIds,
-            message = uiState.message,
-            onRouteClick = onRouteClick
-        )
+        SpotInfoCard(spot = spot, onClose = onCloseSpot)
     }
 }
 
 @Composable
 private fun SpotInfoCard(spot: MapSpotDto, onClose: () -> Unit) {
-    IOSCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 24.dp, padding = PaddingValues(16.dp)) {
+    LiquidGlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 24.dp, padding = PaddingValues(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
@@ -743,100 +800,477 @@ private fun SpotInfoCard(spot: MapSpotDto, onClose: () -> Unit) {
                 Text("景", color = WanLvGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(spot.spotName, color = WanLvTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    spot.spotName,
+                    color = WanLvTextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Text(
                     spot.description ?: spot.poiType ?: "暂无景点介绍",
                     color = WanLvTextSecondary,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
-                    maxLines = 2
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
+            SmallGlassCloseButton(label = "关闭景点信息", onClick = onClose)
+        }
+    }
+}
+
+@Composable
+private fun ScenicDetailPanel(
+    area: MapScenicAreaDto?,
+    selectedArea: ScenicAreaDto?,
+    spotCount: Int,
+    routeCount: Int,
+    onClose: () -> Unit
+) {
+    val scenicName = area?.scenicName ?: selectedArea?.scenicName ?: "景区信息"
+    val description = area?.description ?: selectedArea?.description ?: "暂无景区简介"
+    val location = scenicAreaLocation(area, selectedArea)
+    val openingHours = area?.openingHours?.takeIf { it.isNotBlank() } ?: "暂无开放时间"
+    val levelText = scenicLevelText(selectedArea?.scenicLevel)
+
+    LiquidGlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 310.dp),
+        cornerRadius = 24.dp,
+        padding = PaddingValues(16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Info, contentDescription = null, tint = WanLvGreen, modifier = Modifier.size(16.dp))
+                    Text("景区信息", color = WanLvGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                SmallGlassCloseButton(label = "关闭景区信息", onClick = onClose)
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(
+                    scenicName,
+                    color = WanLvTextPrimary,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (levelText != null) {
+                    GlassChip(text = levelText, accent = WanLvGreen)
+                }
+                Text(
+                    description,
+                    color = WanLvTextPrimary.copy(alpha = 0.82f),
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ScenicMetric(
+                    label = "景点",
+                    value = spotCount.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+                ScenicMetric(
+                    label = "路线",
+                    value = routeCount.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.White.copy(alpha = 0.42f))
+                    .border(1.dp, Color.White.copy(alpha = 0.68f), RoundedCornerShape(16.dp))
+            ) {
+                ScenicDetailRow(Icons.Rounded.LocationOn, "位置", location)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(WanLvDivider.copy(alpha = 0.62f))
+                )
+                ScenicDetailRow(Icons.Rounded.AccessTime, "开放时间", openingHours)
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(WanLvDivider.copy(alpha = 0.54f))
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("地图图例", color = WanLvTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.weight(1f))
+                    Text("道路图层显示重点", color = WanLvTextSecondary, fontSize = 10.sp)
+                }
+                MapLegendContent()
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScenicMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    val unit = if (label == "路线") "条" else "个"
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.48f))
+            .border(1.dp, Color.White.copy(alpha = 0.72f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, color = WanLvTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(value, color = WanLvGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Text(unit, color = WanLvTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun ScenicDetailRow(icon: ImageVector, label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = WanLvGreen, modifier = Modifier.size(15.dp))
+        Text(label, color = WanLvTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(
+            value,
+            color = WanLvTextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun MapLegendContent() {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        RouteLegendItems.forEach { item ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 28.dp, height = 5.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(item.color)
+                )
+                Text(item.label, color = WanLvTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteRecommendationPanel(
+    routes: List<MapRouteDto>,
+    visibleRouteIds: Set<String>,
+    message: String?,
+    onRouteClick: (MapRouteDto) -> Unit,
+    onClose: () -> Unit
+) {
+    LiquidGlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 380.dp),
+        cornerRadius = 24.dp,
+        padding = PaddingValues(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("推荐路线", color = WanLvTextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        "点击路线可控制地图显示，快速切换不同游览方式",
+                        color = WanLvTextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+                SmallGlassCloseButton(label = "关闭推荐路线", onClick = onClose)
+            }
+
+            if (!message.isNullOrBlank()) {
+                Text(
+                    text = message,
+                    color = WanLvTextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.42f))
+                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                )
+            }
+
+            if (routes.isEmpty()) {
+                Text("暂无推荐路线", color = WanLvTextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 260.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    items(routes, key = { it.id }) { route ->
+                        RouteRecommendationCard(
+                            route = route,
+                            selected = visibleRouteIds.contains(route.id),
+                            onClick = { onRouteClick(route) }
+                        )
+                    }
+                }
+            }
+
             Text(
-                text = "关闭",
-                color = WanLvGreen,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable(onClick = onClose)
+                "小提示：路线显示后，可在地图中拖拽查看路径亮点、主要景点节点与推荐游览顺序。",
+                color = WanLvTextSecondary,
+                fontSize = 10.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White.copy(alpha = 0.34f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
             )
         }
     }
 }
 
 @Composable
-private fun RouteStrip(
-    routes: List<MapRouteDto>,
-    visibleRouteIds: Set<String>,
-    message: String?,
-    onRouteClick: (MapRouteDto) -> Unit
-) {
-    if (routes.isEmpty() && message.isNullOrBlank()) return
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (!message.isNullOrBlank()) {
-            Surface(shape = RoundedCornerShape(18.dp), color = WanLvSurface.copy(alpha = 0.88f), shadowElevation = 5.dp) {
-                Text(
-                    text = message,
-                    color = WanLvTextSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                )
-            }
-        }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(routes, key = { it.id }) { route ->
-                RouteCard(
-                    route = route,
-                    selected = visibleRouteIds.contains(route.id),
-                    onClick = { onRouteClick(route) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RouteCard(route: MapRouteDto, selected: Boolean, onClick: () -> Unit) {
+private fun RouteRecommendationCard(route: MapRouteDto, selected: Boolean, onClick: () -> Unit) {
     val accent = if (route.isAgentRoute || route.routeType.equals("agent_custom", ignoreCase = true)) {
         Color(0xFF7C3AED)
     } else {
         Color(0xFFF97316)
     }
-    Surface(
+    val shape = RoundedCornerShape(17.dp)
+    val chips = listOfNotNull(
+        route.durationMinutes?.let { durationLabel(it) },
+        routeTypeLabel(route),
+        route.suitableCrowd?.takeIf { it.isNotBlank() }
+    )
+    Column(
         modifier = Modifier
-            .size(width = 214.dp, height = 94.dp)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(22.dp),
-        color = WanLvSurface.copy(alpha = 0.93f),
-        shadowElevation = if (selected) 10.dp else 5.dp,
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) accent.copy(alpha = 0.72f) else WanLvDivider
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier
-                        .size(9.dp)
-                        .clip(CircleShape)
-                        .background(if (route.hasGeoJson) accent else WanLvTextSecondary.copy(alpha = 0.45f))
-                )
-                Text(route.routeName, color = WanLvTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            }
-            Text(
-                text = route.recommendedReason ?: route.description ?: if (route.hasGeoJson) "点击切换路线轨迹" else "暂未配置轨迹",
-                color = WanLvTextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                maxLines = 2
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Color.White.copy(alpha = if (selected) 0.62f else 0.44f))
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) accent.copy(alpha = 0.76f) else Color.White.copy(alpha = 0.72f),
+                shape = shape
             )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(if (route.hasGeoJson) accent else WanLvTextSecondary.copy(alpha = 0.45f))
+                    )
+                    Text(
+                        route.routeName,
+                        color = WanLvTextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    chips.take(3).forEach { chip ->
+                        GlassChip(text = chip, accent = accent)
+                    }
+                }
+            }
+            RouteVisibleBadge(selected = selected, enabled = route.hasGeoJson, accent = accent)
+        }
+        Text(
+            text = route.recommendedReason ?: route.description ?: if (route.hasGeoJson) "点击切换路线轨迹" else "暂未配置轨迹",
+            color = WanLvTextSecondary,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun RouteVisibleBadge(selected: Boolean, enabled: Boolean, accent: Color) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (selected && enabled) accent else WanLvTextSecondary.copy(alpha = 0.10f))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Rounded.Visibility,
+            contentDescription = null,
+            tint = if (selected && enabled) Color.White else WanLvTextSecondary,
+            modifier = Modifier.size(13.dp)
+        )
+        Text(
+            text = when {
+                !enabled -> "无轨迹"
+                selected -> "已显示"
+                else -> "显示"
+            },
+            color = if (selected && enabled) Color.White else WanLvTextSecondary,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun GlassChip(text: String, accent: Color) {
+    Text(
+        text = text,
+        color = accent,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(accent.copy(alpha = 0.10f))
+            .border(1.dp, Color.White.copy(alpha = 0.64f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    )
+}
+
+@Composable
+private fun SmallGlassCloseButton(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.52f))
+            .border(1.dp, Color.White.copy(alpha = 0.76f), CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(Icons.Rounded.Close, contentDescription = label, tint = WanLvTextPrimary, modifier = Modifier.size(15.dp))
+    }
+}
+
+@Composable
+private fun LiquidGlassCard(
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 24.dp,
+    padding: PaddingValues = PaddingValues(16.dp),
+    content: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(cornerRadius)
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = 22.dp,
+                shape = shape,
+                ambientColor = Color(0xFF8FA0AE).copy(alpha = 0.20f),
+                spotColor = Color(0xFF64727F).copy(alpha = 0.14f)
+            )
+            .clip(shape)
+            // 重点：统一地图页卡片的液态玻璃质感，按钮和面板都保持半透明高光与白色描边。
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.88f),
+                        WanLvSurface.copy(alpha = 0.66f),
+                        WanLvGreenLight.copy(alpha = 0.08f),
+                        Color.White.copy(alpha = 0.74f)
+                    )
+                )
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.78f), shape)
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 42.dp, bottom = 8.dp)
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.46f))
+        )
+        Box(modifier = Modifier.padding(padding)) {
+            content()
         }
     }
 }
+
+private data class RouteLegendItem(
+    val label: String,
+    val color: Color
+)
+
+private val RouteLegendItems = listOf(
+    RouteLegendItem("步行道路", Color(0xFFCBD5E1)),
+    RouteLegendItem("车行道路", Color(0xFFFDBA74)),
+    RouteLegendItem("游览步道", Color(0xFF86EFAC)),
+    RouteLegendItem("服务通道", Color(0xFF93C5FD))
+)
+
+private fun durationLabel(minutes: Int): String =
+    if (minutes >= 60) {
+        val hours = minutes / 60
+        val rest = minutes % 60
+        if (rest == 0) "${hours}小时" else "${hours}小时${rest}分钟"
+    } else {
+        "${minutes}分钟"
+    }
+
+private fun routeTypeLabel(route: MapRouteDto): String =
+    when {
+        route.isAgentRoute || route.routeType.equals("agent_custom", ignoreCase = true) -> "AI路线"
+        route.routeType.equals("official", ignoreCase = true) || route.routeType.isNullOrBlank() -> "官方路线"
+        else -> route.routeType.orEmpty()
+    }
+
+private fun scenicLevelText(level: String?): String? =
+    level
+        ?.takeIf { it.isNotBlank() }
+        ?.let { if (it.contains("景区")) it else "$it 级旅游景区" }
 
 @Composable
 private fun ScenicPickerSheet(
@@ -844,27 +1278,52 @@ private fun ScenicPickerSheet(
     selected: ScenicAreaDto?,
     onSelect: (ScenicAreaDto) -> Unit
 ) {
-    Column(
+    LiquidGlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp)
-            .padding(bottom = 26.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp)
+            .padding(bottom = 16.dp),
+        cornerRadius = 28.dp,
+        padding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
     ) {
-        Text("选择景区", color = WanLvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Black)
-        if (scenicAreas.isEmpty()) {
-            Text("暂无可切换景区", color = WanLvTextSecondary, fontSize = 14.sp)
-        } else {
-            LazyColumn(
-                modifier = Modifier.height(360.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(scenicAreas, key = { it.id }) { area ->
-                    ScenicAreaRow(
-                        area = area,
-                        selected = selected?.id == area.id,
-                        onClick = { onSelect(area) }
-                    )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .size(width = 42.dp, height = 5.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(WanLvTextSecondary.copy(alpha = 0.22f))
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("选择景区", color = WanLvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                Text("切换后会重新载入对应景区地图、点位与路线", color = WanLvTextSecondary, fontSize = 12.sp)
+            }
+
+            if (scenicAreas.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.White.copy(alpha = 0.44f))
+                        .border(1.dp, Color.White.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                        .padding(horizontal = 14.dp, vertical = 18.dp)
+                ) {
+                    Text("暂无可切换景区", color = WanLvTextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(scenicAreas, key = { it.id }) { area ->
+                        ScenicAreaRow(
+                            area = area,
+                            selected = selected?.id == area.id,
+                            onClick = { onSelect(area) }
+                        )
+                    }
                 }
             }
         }
@@ -873,43 +1332,92 @@ private fun ScenicPickerSheet(
 
 @Composable
 private fun ScenicAreaRow(area: ScenicAreaDto, selected: Boolean, onClick: () -> Unit) {
-    Surface(
+    LiquidGlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
-        color = if (selected) WanLvGreen.copy(alpha = 0.12f) else WanLvBackground
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        cornerRadius = 18.dp,
+        padding = PaddingValues(horizontal = 14.dp, vertical = 13.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(if (selected) WanLvGreen else WanLvGreenLight.copy(alpha = 0.18f)),
+                    .size(46.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("游", color = if (selected) WanLvSurface else WanLvGreen, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                if (selected) {
+                    // 重点：当前景区增加绿色光圈，让选中状态在玻璃卡片里更明显。
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(WanLvGreen.copy(alpha = 0.14f))
+                            .border(1.5.dp, WanLvGreen.copy(alpha = 0.54f), CircleShape)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(if (selected) 34.dp else 36.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) WanLvGreen else WanLvGreenLight.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("游", color = if (selected) WanLvSurface else WanLvGreen, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                }
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(area.scenicName, color = WanLvTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Text(scenicAreaLocation(area), color = WanLvTextSecondary, fontSize = 12.sp, maxLines = 1)
+                Text(
+                    area.scenicName,
+                    color = WanLvTextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    scenicAreaLocation(area),
+                    color = WanLvTextSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             if (selected) {
-                Text("当前", color = WanLvGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "当前",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(WanLvGreen)
+                        .padding(horizontal = 9.dp, vertical = 5.dp)
+                )
             }
         }
     }
 }
 
 private fun scenicAreaLocation(area: ScenicAreaDto): String =
-    listOfNotNull(area.province, area.city, area.district)
+    scenicAreaLocation(area = null, selectedArea = area)
+
+private fun scenicAreaLocation(area: MapScenicAreaDto?, selectedArea: ScenicAreaDto?): String {
+    val province = area?.province?.takeIf { it.isNotBlank() } ?: selectedArea?.province
+    val city = area?.city?.takeIf { it.isNotBlank() } ?: selectedArea?.city
+    val district = area?.district?.takeIf { it.isNotBlank() } ?: selectedArea?.district
+    val address = area?.address?.takeIf { it.isNotBlank() } ?: selectedArea?.address
+    return listOfNotNull(province, city, district)
         .filter { it.isNotBlank() }
         .joinToString(" · ")
-        .ifBlank { area.address ?: "景区地图" }
+        .ifBlank { address ?: "景区地图" }
+}
 
 private object MapColorRules {
     const val ScenicBoundsFill = "#2563eb"

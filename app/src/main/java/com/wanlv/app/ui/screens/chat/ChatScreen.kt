@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wanlv.app.model.ChatMessage
+import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
 import com.wanlv.app.ui.components.IOSCard
 import com.wanlv.app.ui.theme.WanLvBackground
 import com.wanlv.app.ui.theme.WanLvGreen
@@ -68,7 +69,8 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
         ChatInputBar(
             value = viewModel.input.value,
             onValueChange = viewModel::updateInput,
-            onSend = viewModel::sendMessage
+            onSend = viewModel::sendMessage,
+            modifier = Modifier.padding(bottom = FloatingBottomBarAvoidance)
         )
     }
 }
@@ -125,10 +127,11 @@ private fun QuickPromptCards() {
 private fun ChatInputBar(
     value: String,
     onValueChange: (String) -> Unit,
-    onSend: () -> Unit
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(WanLvSurface)
             .padding(horizontal = 14.dp, vertical = 12.dp),

@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wanlv.app.data.MockData
+import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
 import com.wanlv.app.ui.components.IOSCard
 import com.wanlv.app.ui.components.QuantityStepper
 import com.wanlv.app.ui.components.SectionHeader
@@ -59,7 +60,7 @@ fun BookingScreen(viewModel: BookingViewModel = viewModel()) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
-                .padding(bottom = 92.dp)
+                .padding(bottom = FloatingBottomBarAvoidance + 74.dp)
         ) {
             BookingHeader(viewModel)
             ScenicCard(viewModel)
@@ -113,7 +114,9 @@ fun BookingScreen(viewModel: BookingViewModel = viewModel()) {
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp)
+                // 重点：只抬起底部操作按钮，导航栏本身继续保持悬浮玻璃效果。
+                .padding(horizontal = 18.dp)
+                .padding(bottom = FloatingBottomBarAvoidance, top = 18.dp)
                 .height(52.dp),
             shape = RoundedCornerShape(26.dp),
             colors = ButtonDefaults.buttonColors(containerColor = WanLvGreen)
