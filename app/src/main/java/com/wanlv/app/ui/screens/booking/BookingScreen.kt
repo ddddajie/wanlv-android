@@ -3,6 +3,7 @@ package com.wanlv.app.ui.screens.booking
 import android.widget.Toast
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,9 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,14 +34,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Place
-import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Button
@@ -72,7 +69,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +79,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.wanlv.app.R
 import com.wanlv.app.pojo.dto.ReservationSlotDto
 import com.wanlv.app.pojo.dto.ReservationSpotDto
 import com.wanlv.app.pojo.dto.ScenicAreaDto
@@ -107,12 +107,13 @@ fun BookingScreen(
 
     val context = LocalContext.current
     var showScenicPicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var showReservationSheet by remember { mutableStateOf(false) }
     val selectedSpot = viewModel.selectedReservationSpot.value
     val currentUser = viewModel.currentUser.value
     val currentUserName = currentUser?.realName ?: currentUser?.displayName ?: currentUser?.nickname.orEmpty()
     val currentUserPhone = currentUser?.phone.orEmpty()
-    val sheetVisible = showScenicPicker || (showReservationSheet && selectedSpot != null)
+    val sheetVisible = showScenicPicker || showDatePicker || (showReservationSheet && selectedSpot != null)
     val backgroundBlur by animateDpAsState(
         targetValue = if (sheetVisible) 18.dp else 0.dp,
         label = "booking-background-blur"
@@ -153,17 +154,15 @@ fun BookingScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .statusBarsPadding()
                     .padding(bottom = FloatingBottomBarAvoidance + 28.dp)
             ) {
-                BookingHero(viewModel = viewModel, onSwitchScenic = { showScenicPicker = true })
-                DateSelector(
-                    options = viewModel.dateOptions,
-                    selectedIndex = viewModel.selectedDateIndex.intValue,
-                    onSelect = viewModel::selectDate
+                BookingHero(
+                    viewModel = viewModel,
+                    onSwitchScenic = { showScenicPicker = true }
                 )
                 SpotQuotaSection(
                     viewModel = viewModel,
+                    onSwitchDate = { showDatePicker = true },
                     onSpotClick = { spot ->
                         viewModel.selectReservationSpot(spot)
                         showReservationSheet = true
@@ -205,6 +204,27 @@ fun BookingScreen(
                     showScenicPicker = false
                     viewModel.selectScenicArea(area)
                 }
+            )
+        }
+    }
+
+    if (showDatePicker) {
+        ModalBottomSheet(
+            onDismissRequest = { showDatePicker = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = Color.Transparent,
+            scrimColor = Color.Transparent,
+            tonalElevation = 0.dp,
+            dragHandle = null
+        ) {
+            DatePickerSheet(
+                options = viewModel.dateOptions,
+                selectedIndex = viewModel.selectedDateIndex.intValue,
+                onSelect = { index ->
+                    showDatePicker = false
+                    viewModel.selectDate(index)
+                },
+                onClose = { showDatePicker = false }
             )
         }
     }
@@ -259,72 +279,233 @@ private fun BookingHero(
     onSwitchScenic: () -> Unit
 ) {
     val area = viewModel.selectedScenicArea.value
-    val totalRemaining = viewModel.reservationQuotaSummaries.values
-        .filterNot { it.loading || it.failed }
-        .sumOf { it.remainingCount }
 
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(318.dp)
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.gg1),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.06f),
+                            Color.Black.copy(alpha = 0.24f),
+                            Color.Black.copy(alpha = 0.54f)
+                        )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(112.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            WanLvBackground.copy(alpha = 0.74f),
+                            WanLvBackground
+                        )
+                    )
+                )
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(horizontal = 22.dp)
+                .padding(top = 28.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text(
+                        "景点预约",
+                        color = Color.White.copy(alpha = 0.92f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            area?.scenicName ?: "请选择景区",
+                            modifier = Modifier.weight(1f, fill = false),
+                            color = Color.White,
+                            fontSize = 27.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        SwitchScenicButton(onClick = onSwitchScenic)
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.LocationOn,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.86f),
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Text(
+                        area?.locationText?.ifBlank { area.address ?: "景区位置待完善" }
+                            ?: "切换景区后查看可预约景点",
+                        modifier = Modifier.weight(1f, fill = false),
+                        color = Color.White.copy(alpha = 0.86f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Text(
+                viewModel.loadMessage.value,
+                color = Color.White.copy(alpha = 0.82f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun SwitchDateButton(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(17.dp))
+            .background(WanLvMint.copy(alpha = 0.82f))
+            .border(1.dp, Color.White.copy(alpha = 0.76f), RoundedCornerShape(17.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text("切换日期", color = WanLvGreen, fontSize = 11.sp, fontWeight = FontWeight.Black)
+        Icon(
+            Icons.Rounded.KeyboardArrowDown,
+            contentDescription = "切换日期",
+            tint = WanLvGreen,
+            modifier = Modifier.size(15.dp)
+        )
+    }
+}
+
+@Composable
+private fun DatePickerSheet(
+    options: List<BookingDateOption>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onClose: () -> Unit
+) {
     LiquidGlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 16.dp),
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp)
+            .padding(bottom = 16.dp),
         cornerRadius = 28.dp,
-        padding = PaddingValues(18.dp)
+        padding = PaddingValues(horizontal = 16.dp, vertical = 16.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                GlassIcon(Icons.Rounded.CalendarMonth, contentDescription = "预约")
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("景点预约", color = WanLvTextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                    Text(
-                        viewModel.loadMessage.value,
-                        color = WanLvTextSecondary,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "选择日期",
+                modifier = Modifier.weight(1f),
+                color = WanLvTextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Black
+            )
+            SmallGlassCloseButton(onClick = onClose)
+        }
+        Spacer(Modifier.height(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            options.chunked(2).forEachIndexed { rowIndex, rowOptions ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    rowOptions.forEachIndexed { columnIndex, option ->
+                        val index = rowIndex * 2 + columnIndex
+                        DatePickerCard(
+                            option = option,
+                            selected = index == selectedIndex,
+                            onClick = { onSelect(index) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (rowOptions.size == 1) {
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
-                SwitchScenicButton(onClick = onSwitchScenic)
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    area?.scenicName ?: "请选择景区",
-                    color = WanLvTextPrimary,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = WanLvGreen, modifier = Modifier.size(16.dp))
-                    Text(
-                        area?.locationText?.ifBlank { area.address ?: "景区位置待完善" } ?: "切换景区后查看可预约景点",
-                        color = WanLvTextSecondary,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                HeaderStatCard(
-                    label = "景点",
-                    value = viewModel.reservationSpots.size.toString(),
-                    modifier = Modifier.weight(1f)
-                )
-                HeaderStatCard(
-                    label = "可预约余量",
-                    value = totalRemaining.toString(),
-                    suffix = "人",
-                    modifier = Modifier.weight(1f)
-                )
             }
         }
+    }
+}
+
+@Composable
+private fun DatePickerCard(
+    option: BookingDateOption,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(13.dp)
+    Column(
+        modifier = modifier
+            .height(60.dp)
+            .clip(shape)
+            .background(if (selected) WanLvGreen.copy(alpha = 0.96f) else Color.White.copy(alpha = 0.62f))
+            .border(
+                width = 1.dp,
+                color = if (selected) WanLvGreen.copy(alpha = 0.62f) else WanLvTextSecondary.copy(alpha = 0.13f),
+                shape = shape
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            dateTitle(option),
+            color = if (selected) Color.White else WanLvTextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            dateSubtitle(option),
+            color = if (selected) Color.White.copy(alpha = 0.88f) else WanLvTextSecondary,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -332,10 +513,10 @@ private fun BookingHero(
 private fun SwitchScenicButton(onClick: () -> Unit) {
     Row(
         modifier = Modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .height(34.dp)
+            .clip(RoundedCornerShape(17.dp))
             .background(Color.White.copy(alpha = 0.58f))
-            .border(1.dp, Color.White.copy(alpha = 0.80f), RoundedCornerShape(20.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.80f), RoundedCornerShape(17.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -345,127 +526,67 @@ private fun SwitchScenicButton(onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("切换", color = WanLvGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text("切换景区", color = WanLvGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "切换景区", tint = WanLvGreen, modifier = Modifier.size(17.dp))
     }
 }
 
-@Composable
-private fun HeaderStatCard(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    suffix: String = ""
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.46f))
-            .border(1.dp, Color.White.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(label, color = WanLvTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(value, color = WanLvGreen, fontSize = 24.sp, fontWeight = FontWeight.Black)
-            if (suffix.isNotBlank()) {
-                Text(suffix, color = WanLvTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+private fun dateTitle(option: BookingDateOption): String =
+    "${option.value.monthValue}月${option.value.dayOfMonth}号"
+
+private fun dateSubtitle(option: BookingDateOption): String {
+    val weekText = weekText(option)
+    return when (option.label) {
+        "今天", "明天" -> "${option.label} · $weekText"
+        else -> "${option.value.monthValue}/${option.value.dayOfMonth} · $weekText"
     }
 }
 
-@Composable
-private fun DateSelector(
-    options: List<BookingDateOption>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        BookingSectionTitle(
-            title = "选择日期",
-            modifier = Modifier.padding(horizontal = 18.dp)
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(options.size) { index ->
-                DateChip(
-                    option = options[index],
-                    selected = index == selectedIndex,
-                    onClick = { onSelect(index) }
-                )
-            }
-        }
+private fun weekText(option: BookingDateOption): String =
+    when (option.value.dayOfWeek.value) {
+        1 -> "周一"
+        2 -> "周二"
+        3 -> "周三"
+        4 -> "周四"
+        5 -> "周五"
+        6 -> "周六"
+        else -> "周日"
     }
-}
-
-@Composable
-private fun DateChip(
-    option: BookingDateOption,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val shape = RoundedCornerShape(22.dp)
-    Column(
-        modifier = Modifier
-            .width(82.dp)
-            .height(86.dp)
-            .shadow(
-                elevation = if (selected) 16.dp else 8.dp,
-                shape = shape,
-                ambientColor = WanLvGreen.copy(alpha = if (selected) 0.20f else 0.05f),
-                spotColor = Color(0xFF64727F).copy(alpha = if (selected) 0.12f else 0.06f)
-            )
-            .clip(shape)
-            .background(
-                if (selected) {
-                    Brush.verticalGradient(listOf(WanLvGreenLight, WanLvGreen))
-                } else {
-                    Brush.linearGradient(listOf(Color.White.copy(alpha = 0.88f), WanLvSurface.copy(alpha = 0.70f)))
-                }
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.78f), shape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
-            .padding(vertical = 13.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            option.label,
-            color = if (selected) Color.White else WanLvTextPrimary,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp
-        )
-        Spacer(Modifier.height(7.dp))
-        Text(
-            option.dateText,
-            color = if (selected) Color.White.copy(alpha = 0.90f) else WanLvTextSecondary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
 
 @Composable
 private fun SpotQuotaSection(
     viewModel: BookingViewModel,
+    onSwitchDate: () -> Unit,
     onSpotClick: (ReservationSpotDto) -> Unit
 ) {
     Column(
-        modifier = Modifier.padding(top = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        modifier = Modifier.padding(top = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        BookingSectionTitle(
-            title = "景点预约名额",
-            trailing = "${viewModel.reservationSpots.size} 个景点",
-            modifier = Modifier.padding(horizontal = 18.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "景点预约名额",
+                color = WanLvTextPrimary,
+                fontSize = 21.sp,
+                fontWeight = FontWeight.Black
+            )
+            Spacer(Modifier.width(8.dp))
+            SwitchDateButton(onClick = onSwitchDate)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${viewModel.reservationSpots.size} 个景点",
+                color = WanLvTextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
         if (viewModel.reservationSpots.isEmpty()) {
             EmptySpotCard(message = viewModel.loadMessage.value)
@@ -474,12 +595,23 @@ private fun SpotQuotaSection(
                 modifier = Modifier.padding(horizontal = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                viewModel.reservationSpots.forEach { spot ->
-                    SpotQuotaCard(
-                        spot = spot,
-                        quota = viewModel.reservationQuotaSummaries[spot.spotId],
-                        onClick = { onSpotClick(spot) }
-                    )
+                viewModel.reservationSpots.chunked(2).forEach { rowSpots ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        rowSpots.forEach { spot ->
+                            SpotQuotaCard(
+                                spot = spot,
+                                quota = viewModel.reservationQuotaSummaries[spot.spotId],
+                                onClick = { onSpotClick(spot) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (rowSpots.size == 1) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
                 }
             }
         }
@@ -490,72 +622,63 @@ private fun SpotQuotaSection(
 private fun SpotQuotaCard(
     spot: ReservationSpotDto,
     quota: ReservationQuotaSummary?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     LiquidGlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
+            .height(112.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
             ),
-        cornerRadius = 22.dp,
-        padding = PaddingValues(horizontal = 15.dp, vertical = 14.dp)
+        cornerRadius = 20.dp,
+        padding = PaddingValues(horizontal = 14.dp, vertical = 13.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            GlassIcon(Icons.Rounded.Place, contentDescription = spot.spotName, size = 48.dp)
             Text(
                 text = spot.spotName,
-                modifier = Modifier.weight(1f),
                 color = WanLvTextPrimary,
                 fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
+                fontWeight = FontWeight.Black,
+                lineHeight = 21.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            QuotaBadge(quota = quota)
+            CompactQuotaText(quota = quota)
         }
     }
 }
 
 @Composable
-private fun QuotaBadge(quota: ReservationQuotaSummary?) {
+private fun CompactQuotaText(quota: ReservationQuotaSummary?) {
     val loading = quota == null || quota.loading
     val failed = quota?.failed == true
-    val primaryText = when {
+    val quotaText = when {
         loading -> "加载中"
         failed -> "名额未知"
-        quota?.availableSlotCount == 0 -> "未开放"
-        else -> "余 ${quota?.remainingCount ?: 0}"
-    }
-    val secondaryText = when {
-        loading -> "预约容量"
-        failed -> "点击查看"
-        else -> "容量 ${quota?.totalCapacity ?: 0}"
+        quota?.totalCapacity == 0 -> "未开放"
+        else -> "余 ${quota?.remainingCount ?: 0} / ${quota?.totalCapacity ?: 0} 人"
     }
 
-    Column(
+    Text(
+        text = quotaText,
+        color = if (loading || failed) WanLvTextSecondary else WanLvGreen,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = Modifier
-            .widthIn(min = 82.dp)
-            .clip(RoundedCornerShape(17.dp))
-            .background(WanLvMint.copy(alpha = if (loading || failed) 0.44f else 0.70f))
-            .border(1.dp, Color.White.copy(alpha = 0.76f), RoundedCornerShape(17.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
-        if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(15.dp), color = WanLvGreen, strokeWidth = 2.dp)
-        } else {
-            Text(primaryText, color = WanLvGreen, fontSize = 15.sp, fontWeight = FontWeight.Black)
-        }
-        Text(secondaryText, color = WanLvTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    }
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(13.dp))
+            .background(WanLvMint.copy(alpha = if (loading || failed) 0.36f else 0.56f))
+            .border(1.dp, Color.White.copy(alpha = 0.68f), RoundedCornerShape(13.dp))
+            .padding(horizontal = 9.dp, vertical = 7.dp)
+    )
 }
 
 @Composable
@@ -1192,29 +1315,6 @@ private fun ScenicAreaRow(
         }
         if (selected) {
             Icon(Icons.Rounded.Check, contentDescription = "当前景区", tint = WanLvGreen, modifier = Modifier.size(20.dp))
-        }
-    }
-}
-
-@Composable
-private fun BookingSectionTitle(
-    title: String,
-    modifier: Modifier = Modifier,
-    trailing: String? = null
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            title,
-            modifier = Modifier.weight(1f),
-            color = WanLvTextPrimary,
-            fontSize = 21.sp,
-            fontWeight = FontWeight.Black
-        )
-        trailing?.let {
-            Text(it, color = WanLvTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
