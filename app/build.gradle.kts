@@ -44,7 +44,7 @@ android {
         minSdk = 28
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0"
+        versionName = "0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "WANLV_API_BASE_URL", buildConfigString(wanLvEnvValue("WANLV_API_BASE_URL", "http://127.0.0.1:8080")))

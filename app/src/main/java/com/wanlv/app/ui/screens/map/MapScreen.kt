@@ -1,12 +1,26 @@
 package com.wanlv.app.ui.screens.map
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Looper
+import android.widget.Toast
 import android.graphics.Color as AndroidColor
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -80,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -106,9 +121,13 @@ import com.wanlv.app.viewmodel.MapDigitalHumanUiState
 import com.wanlv.app.viewmodel.MapDigitalHumanViewModel
 import com.wanlv.app.viewmodel.MapUiState
 import com.wanlv.app.viewmodel.MapViewModel
+import kotlin.coroutines.resume
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sqrt
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -119,6 +138,18 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.sources.GeoJsonSource
+
+private data class UserMapLocation(
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyMeters: Float?,
+    val timestampMillis: Long,
+    val requestId: Int
+) {
+    val hasValidCoordinate: Boolean
+        get() = longitude in -180.0..180.0 && latitude in -90.0..90.0
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,15 +157,49 @@ fun MapScreen(
     viewModel: MapViewModel = viewModel(),
     digitalHumanViewModel: MapDigitalHumanViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+    val headingDegrees = rememberDeviceHeadingDegrees()
     val uiState = viewModel.uiState
     val digitalHumanState = digitalHumanViewModel.uiState
     val isLoggedIn = AuthSession.userId != null && !AuthSession.token.isNullOrBlank()
     var showScenicPicker by remember { mutableStateOf(false) }
     var showScenicDetail by remember { mutableStateOf(false) }
     var showRoutePanel by remember { mutableStateOf(false) }
+    var locateRequestId by remember { mutableStateOf(0) }
+    var userLocation by remember { mutableStateOf<UserMapLocation?>(null) }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.any { it }) {
+            locateRequestId += 1
+        } else {
+            Toast.makeText(context, "需要开启定位权限后才能显示当前位置", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun requestLocateSelf() {
+        if (context.hasLocationPermission()) {
+            locateRequestId += 1
+        } else {
+            locationPermissionLauncher.launch(LocationPermissions)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.loadMap()
+    }
+
+    LaunchedEffect(locateRequestId) {
+        if (locateRequestId <= 0) return@LaunchedEffect
+        val location = runCatching {
+            locateCurrentUser(context, locateRequestId)
+        }.getOrNull()
+        if (location != null) {
+            userLocation = location
+            Toast.makeText(context, "已定位到当前位置", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "暂时无法获取定位，请检查定位服务是否开启", Toast.LENGTH_SHORT).show()
+        }
     }
 
     LaunchedEffect(uiState.selectedScenicArea?.id) {
@@ -153,6 +218,8 @@ fun MapScreen(
     ) {
         MapLibreGuideMap(
             uiState = uiState,
+            userLocation = userLocation,
+            headingDegrees = headingDegrees,
             onSpotClick = viewModel::selectSpot,
             modifier = Modifier.fillMaxSize()
         )
@@ -179,7 +246,7 @@ fun MapScreen(
                 showScenicDetail = false
                 if (showRoutePanel) digitalHumanViewModel.close()
             },
-            onLocateSelf = {},
+            onLocateSelf = { requestLocateSelf() },
             onRefresh = {
                 showScenicPicker = false
                 showScenicDetail = false
@@ -300,6 +367,8 @@ fun MapScreen(
 @Composable
 private fun MapLibreGuideMap(
     uiState: MapUiState,
+    userLocation: UserMapLocation?,
+    headingDegrees: Float?,
     onSpotClick: (MapSpotDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -308,8 +377,14 @@ private fun MapLibreGuideMap(
     val currentSpots by rememberUpdatedState(uiState.mapInit?.spots.orEmpty())
     val currentOnSpotClick by rememberUpdatedState(onSpotClick)
     var centeredScenicAreaId by remember { mutableStateOf<Long?>(null) }
+    var centeredUserLocationRequestId by remember { mutableStateOf<Int?>(null) }
     var lastStyleJson by remember { mutableStateOf<String?>(null) }
-    val styleJson = remember(uiState.mapInit, uiState.recommendedRoutes, uiState.visibleRouteIds, uiState.selectedSpot?.id) {
+    val styleJson = remember(
+        uiState.mapInit,
+        uiState.recommendedRoutes,
+        uiState.visibleRouteIds,
+        uiState.selectedSpot?.id
+    ) {
         buildMapStyleJson(uiState)
     }
 
@@ -330,13 +405,25 @@ private fun MapLibreGuideMap(
                     // 业务图层也写入同一个 style，确保底图、路线、景点保持同一套 WebMercator 坐标体系。
                     map.setStyle(Style.Builder().fromJson(styleJson)) { style ->
                         registerSpotIconImages(context, style)
+                        updateUserLocationSource(map, userLocation, headingDegrees)
                         moveCameraToScenicArea(map, uiState.mapInit?.scenicArea, centeredScenicAreaId)
                         centeredScenicAreaId = uiState.mapInit?.scenicArea?.id ?: centeredScenicAreaId
+                        centeredUserLocationRequestId = moveCameraToUserLocation(
+                            map = map,
+                            location = userLocation,
+                            centeredRequestId = centeredUserLocationRequestId
+                        )
                     }
                     lastStyleJson = styleJson
                 } else {
+                    updateUserLocationSource(map, userLocation, headingDegrees)
                     moveCameraToScenicArea(map, uiState.mapInit?.scenicArea, centeredScenicAreaId)
                     centeredScenicAreaId = uiState.mapInit?.scenicArea?.id ?: centeredScenicAreaId
+                    centeredUserLocationRequestId = moveCameraToUserLocation(
+                        map = map,
+                        location = userLocation,
+                        centeredRequestId = centeredUserLocationRequestId
+                    )
                 }
             }
         }
@@ -433,6 +520,33 @@ private fun createMapLibreView(context: Context): MapView {
     }
 }
 
+private fun updateUserLocationSource(
+    map: MapLibreMap,
+    location: UserMapLocation?,
+    headingDegrees: Float?
+) {
+    map.getStyle { style ->
+        style.getSourceAs<GeoJsonSource>(UserLocationSourceId)
+            ?.setGeoJson(buildUserLocationFeatureCollection(location, headingDegrees).toString())
+    }
+}
+
+private fun moveCameraToUserLocation(
+    map: MapLibreMap,
+    location: UserMapLocation?,
+    centeredRequestId: Int?
+): Int? {
+    if (location == null || !location.hasValidCoordinate || centeredRequestId == location.requestId) {
+        return centeredRequestId
+    }
+    val camera = CameraPosition.Builder()
+        .target(LatLng(location.latitude, location.longitude))
+        .zoom(maxOf(map.cameraPosition.zoom, UserLocationZoom))
+        .build()
+    map.moveCamera(CameraUpdateFactory.newCameraPosition(camera))
+    return location.requestId
+}
+
 private fun moveCameraToScenicArea(map: MapLibreMap, area: MapScenicAreaDto?, centeredScenicAreaId: Long?) {
     if (area == null || centeredScenicAreaId == area.id) return
     val latitude = area.centerLatitude ?: DefaultLatitude
@@ -465,6 +579,7 @@ private fun buildMapStyleJson(uiState: MapUiState): String {
         .put(GeoFeatureSourceId, featureCollectionSource(buildGeoFeatureCollection(uiState.mapInit?.geoFeatures.orEmpty())))
         .put(RouteSourceId, featureCollectionSource(buildRouteFeatureCollection(uiState.recommendedRoutes, uiState.visibleRouteIds)))
         .put(SpotSourceId, featureCollectionSource(buildSpotFeatureCollection(uiState.mapInit?.spots.orEmpty(), uiState.selectedSpot?.id)))
+        .put(UserLocationSourceId, featureCollectionSource(emptyFeatureCollection()))
 
     val layers = JSONArray()
         .put(backgroundLayer("#EEF2F0"))
@@ -490,6 +605,10 @@ private fun buildMapStyleJson(uiState: MapUiState): String {
         .put(lineLayerFromGeoJson("route-line", RouteSourceId))
         .put(spotIconLayer("spot-icon", SpotSourceId))
         .put(symbolLayer("spot-label", SpotSourceId))
+        .put(userLocationAccuracyLayer("user-location-accuracy", UserLocationSourceId))
+        .put(userLocationHeadingLayer("user-location-heading", UserLocationSourceId))
+        .put(userLocationDotLayer("user-location-dot", UserLocationSourceId))
+        .put(userLocationLabelLayer("user-location-label", UserLocationSourceId))
 
     return JSONObject()
         .put("version", 8)
@@ -526,6 +645,7 @@ private fun registerSpotIconImages(context: Context, style: Style) {
     MapSpotIconRules.allStyles.forEach { icon ->
         images[icon.imageId] = createSpotIconBitmap(icon, density)
     }
+    images[UserHeadingImageId] = createUserHeadingArrowBitmap(density)
     // 重点：景点标注使用 MapLibre 原生 bitmap icon，避免文字占位图标显得粗糙。
     style.addImages(images)
 }
@@ -555,6 +675,38 @@ private fun createSpotIconBitmap(icon: MapSpotIconStyle, density: Float): Bitmap
         size - padding
     )
     drawSpotIcon(canvas, icon.type, bounds, iconPaint, iconFillPaint)
+    return bitmap
+}
+
+private fun createUserHeadingArrowBitmap(density: Float): Bitmap {
+    val size = (56f * density).toInt().coerceAtLeast(56)
+    val scale = size / 56f
+    val centerX = size / 2f
+    val centerY = size / 2f
+    val arrow = Path().apply {
+        moveTo(centerX, 4f * scale)
+        lineTo(centerX + 11f * scale, centerY + 14f * scale)
+        lineTo(centerX + 3.6f * scale, centerY + 11f * scale)
+        lineTo(centerX, size - 8f * scale)
+        lineTo(centerX - 3.6f * scale, centerY + 11f * scale)
+        lineTo(centerX - 11f * scale, centerY + 14f * scale)
+        close()
+    }
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 4.5f * scale
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+        color = AndroidColor.WHITE
+    }
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = AndroidColor.parseColor("#2563EB")
+    }
+    canvas.drawPath(arrow, strokePaint)
+    canvas.drawPath(arrow, fillPaint)
     return bitmap
 }
 
@@ -809,6 +961,82 @@ private fun circleLayerFromGeoJson(id: String, sourceId: String): JSONObject =
                 .put("circle-stroke-width", 2)
         )
 
+private fun userLocationAccuracyLayer(id: String, sourceId: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "circle")
+        .put("source", sourceId)
+        .put("filter", JSONArray().put("==").put(JSONArray().put("geometry-type")).put("Point"))
+        .put(
+            "paint",
+            JSONObject()
+                .put("circle-radius", propertyExpression("accuracyRadius"))
+                .put("circle-color", "#2563EB")
+                .put("circle-opacity", propertyExpression("accuracyOpacity"))
+                .put("circle-stroke-color", "#60A5FA")
+                .put("circle-stroke-width", 1.2)
+                .put("circle-stroke-opacity", 0.42)
+        )
+
+private fun userLocationDotLayer(id: String, sourceId: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "circle")
+        .put("source", sourceId)
+        .put("filter", JSONArray().put("==").put(JSONArray().put("geometry-type")).put("Point"))
+        .put(
+            "paint",
+            JSONObject()
+                .put("circle-radius", propertyExpression("markerRadius"))
+                .put("circle-color", "#2563EB")
+                .put("circle-opacity", 1.0)
+                .put("circle-stroke-color", "#FFFFFF")
+                .put("circle-stroke-width", 3.0)
+        )
+
+private fun userLocationHeadingLayer(id: String, sourceId: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "symbol")
+        .put("source", sourceId)
+        .put("filter", JSONArray().put("==").put(JSONArray().put("get").put("hasHeading")).put(true))
+        .put(
+            "layout",
+            JSONObject()
+                .put("icon-image", UserHeadingImageId)
+                .put("icon-size", propertyExpression("headingIconScale"))
+                .put("icon-anchor", "center")
+                .put("icon-rotate", propertyExpression("headingDegrees"))
+                .put("icon-rotation-alignment", "map")
+                .put("icon-pitch-alignment", "map")
+                .put("icon-allow-overlap", true)
+                .put("icon-ignore-placement", true)
+        )
+
+private fun userLocationLabelLayer(id: String, sourceId: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "symbol")
+        .put("source", sourceId)
+        .put(
+            "layout",
+            JSONObject()
+                .put("text-field", JSONArray().put("get").put("name"))
+                .put("text-size", 12)
+                .put("text-offset", JSONArray().put(0).put(-1.35))
+                .put("text-anchor", "bottom")
+                .put("text-allow-overlap", true)
+                .put("text-ignore-placement", true)
+                .put("text-font", JSONArray().put("Noto Sans Regular"))
+        )
+        .put(
+            "paint",
+            JSONObject()
+                .put("text-color", "#1D4ED8")
+                .put("text-halo-color", "#FFFFFF")
+                .put("text-halo-width", 1.5)
+        )
+
 private fun spotCircleLayer(id: String, sourceId: String): JSONObject =
     JSONObject()
         .put("id", id)
@@ -908,6 +1136,27 @@ private fun buildSpotFeatureCollection(spots: List<MapSpotDto>, selectedSpotId: 
         features.put(feature(geometry, properties))
     }
     return featureCollection(features)
+}
+
+private fun buildUserLocationFeatureCollection(location: UserMapLocation?, headingDegrees: Float?): JSONObject {
+    if (location == null || !location.hasValidCoordinate) return emptyFeatureCollection()
+    val accuracyMeters = location.accuracyMeters ?: 40f
+    val heading = headingDegrees?.let(::normalizeBearingDegrees)
+    val geometry = JSONObject()
+        .put("type", "Point")
+        .put("coordinates", JSONArray().put(location.longitude).put(location.latitude))
+    val properties = JSONObject()
+        // 重点：我的位置也放进 MapLibre 原生 GeoJSON 图层，拖拽和缩放时能和底图保持同步。
+        .put("name", if (heading == null) "当前位置" else "当前位置 · 面向${headingDirectionLabel(heading)}")
+        .put("markerRadius", 7.8)
+        .put("hasHeading", heading != null)
+        .put("headingDegrees", heading ?: 0f)
+        .put("headingIconScale", if (heading == null) 0.0 else 1.0)
+        .put("accuracyRadius", (accuracyMeters / 4f).coerceIn(18f, 38f).toDouble())
+        .put("accuracyOpacity", if (accuracyMeters <= 80f) 0.16 else 0.1)
+        .put("accuracyMeters", accuracyMeters.toDouble())
+        .put("timestampMillis", location.timestampMillis)
+    return featureCollection(JSONArray().put(feature(geometry, properties)))
 }
 
 private fun buildRouteFeatureCollection(routes: List<MapRouteDto>, visibleRouteIds: Set<String>): JSONObject {
@@ -1028,7 +1277,7 @@ private fun MapToolDock(
         }
         LiquidGlassIconButton(Icons.Rounded.Info, "景区详细信息", onClick = onOpenScenicDetail)
         LiquidGlassIconButton(Icons.Rounded.Route, "景区路线推荐", onClick = onOpenRoutePanel)
-        LiquidGlassIconButton(Icons.Rounded.MyLocation, "定位自己位置", enabled = false, onClick = onLocateSelf)
+        LiquidGlassIconButton(Icons.Rounded.MyLocation, "定位自己位置", onClick = onLocateSelf)
         LiquidGlassIconButton(Icons.Rounded.Refresh, "刷新", onClick = onRefresh)
     }
 }
@@ -2007,13 +2256,174 @@ private fun String.androidReachableMapUrl(): String =
     replace("://localhost", "://10.0.2.2")
         .replace("://127.0.0.1", "://10.0.2.2")
 
+@Composable
+private fun rememberDeviceHeadingDegrees(): Float? {
+    val context = LocalContext.current
+    var headingDegrees by remember { mutableStateOf<Float?>(null) }
+
+    DisposableEffect(context) {
+        val sensorManager = context.getSystemService(SensorManager::class.java)
+        val sensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            ?: sensorManager?.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+
+        if (sensorManager == null || sensor == null) {
+            onDispose { }
+        } else {
+            val rotationMatrix = FloatArray(9)
+            val orientation = FloatArray(3)
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                    SensorManager.getOrientation(rotationMatrix, orientation)
+                    val nextHeading = normalizeBearingDegrees(Math.toDegrees(orientation[0].toDouble()).toFloat())
+                    val currentHeading = headingDegrees
+                    // 重点：传感器会高频回调，这里只在朝向明显变化时刷新地图箭头，避免 UI 频繁抖动。
+                    if (currentHeading == null || bearingDeltaDegrees(currentHeading, nextHeading) >= HeadingUpdateThresholdDegrees) {
+                        headingDegrees = nextHeading
+                    }
+                }
+
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+            }
+            sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+            onDispose {
+                sensorManager.unregisterListener(listener)
+            }
+        }
+    }
+
+    return headingDegrees
+}
+
+private fun normalizeBearingDegrees(value: Float): Float {
+    val normalized = value % 360f
+    return if (normalized < 0f) normalized + 360f else normalized
+}
+
+private fun bearingDeltaDegrees(from: Float, to: Float): Float {
+    val diff = abs(normalizeBearingDegrees(from) - normalizeBearingDegrees(to))
+    return if (diff > 180f) 360f - diff else diff
+}
+
+private fun headingDirectionLabel(headingDegrees: Float): String {
+    val labels = listOf("北", "东北", "东", "东南", "南", "西南", "西", "西北")
+    val index = ((normalizeBearingDegrees(headingDegrees) + 22.5f) / 45f).toInt() % labels.size
+    return labels[index]
+}
+
+private fun Context.hasLocationPermission(): Boolean =
+    LocationPermissions.any { permission ->
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+@SuppressLint("MissingPermission")
+private suspend fun locateCurrentUser(context: Context, requestId: Int): UserMapLocation? {
+    if (!context.hasLocationPermission()) return null
+    val locationManager = context.getSystemService(LocationManager::class.java) ?: return null
+    val cachedLocation = locationManager.bestLastKnownLocation()
+    val freshCachedLocation = cachedLocation?.takeIf {
+        System.currentTimeMillis() - it.time <= LocationFreshnessMillis
+    }
+    if (freshCachedLocation != null) {
+        return freshCachedLocation.toUserMapLocation(requestId)
+    }
+
+    // 重点：先用系统缓存兜底，再等待一次实时定位，避免室内或定位服务较慢时地图完全没有位置点。
+    val liveLocation = withTimeoutOrNull(LocationRequestTimeoutMillis) {
+        locationManager.awaitEnabledProviderLocation()
+    }
+    return (liveLocation ?: cachedLocation)?.toUserMapLocation(requestId)
+}
+
+@SuppressLint("MissingPermission")
+private fun LocationManager.bestLastKnownLocation(): Location? =
+    getProviders(true)
+        .mapNotNull { provider ->
+            runCatching { getLastKnownLocation(provider) }.getOrNull()
+        }
+        .maxByOrNull { it.time }
+
+@SuppressLint("MissingPermission")
+private suspend fun LocationManager.awaitEnabledProviderLocation(): Location? {
+    val providers = LocationProviderPriority.filter { provider ->
+        runCatching { isProviderEnabled(provider) }.getOrDefault(false)
+    }
+    if (providers.isEmpty()) return null
+
+    return suspendCancellableCoroutine { continuation ->
+        val listeners = mutableListOf<LocationListener>()
+        var completed = false
+
+        fun cleanup() {
+            listeners.forEach { listener ->
+                runCatching { removeUpdates(listener) }
+            }
+            listeners.clear()
+        }
+
+        fun finish(location: Location?) {
+            if (completed) return
+            completed = true
+            cleanup()
+            if (continuation.isActive) {
+                continuation.resume(location)
+            }
+        }
+
+        providers.forEach { provider ->
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    finish(location)
+                }
+            }
+            listeners += listener
+            runCatching {
+                requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+            }.onFailure {
+                listeners -= listener
+            }
+        }
+
+        if (listeners.isEmpty()) {
+            finish(null)
+        }
+
+        continuation.invokeOnCancellation {
+            cleanup()
+        }
+    }
+}
+
+private fun Location.toUserMapLocation(requestId: Int): UserMapLocation =
+    UserMapLocation(
+        latitude = latitude,
+        longitude = longitude,
+        accuracyMeters = if (hasAccuracy()) accuracy else null,
+        timestampMillis = time.takeIf { it > 0L } ?: System.currentTimeMillis(),
+        requestId = requestId
+    )
+
 private const val BaseSourceId = "china"
 private const val MapBaseImageSourceId = "wanlv-map-base-image"
 private const val BoundsSourceId = "wanlv-bounds"
 private const val GeoFeatureSourceId = "wanlv-geo-features"
 private const val RouteSourceId = "wanlv-routes"
 private const val SpotSourceId = "wanlv-spots"
+private const val UserLocationSourceId = "wanlv-user-location"
+private const val UserHeadingImageId = "wanlv-user-heading-arrow"
 private const val GlyphsUrl = "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf"
 private const val DefaultLatitude = 30.236581
 private const val DefaultLongitude = 120.155161
 private const val DefaultZoom = 14.0
+private const val UserLocationZoom = 17.0
+private const val HeadingUpdateThresholdDegrees = 3f
+private const val LocationFreshnessMillis = 30_000L
+private const val LocationRequestTimeoutMillis = 10_000L
+private val LocationPermissions = arrayOf(
+    Manifest.permission.ACCESS_FINE_LOCATION,
+    Manifest.permission.ACCESS_COARSE_LOCATION
+)
+private val LocationProviderPriority = listOf(
+    LocationManager.GPS_PROVIDER,
+    LocationManager.NETWORK_PROVIDER
+)
