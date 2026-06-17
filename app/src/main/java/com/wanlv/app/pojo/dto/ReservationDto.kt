@@ -1,5 +1,6 @@
 package com.wanlv.app.pojo.dto
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class ReservationSpotDto(
@@ -47,5 +48,55 @@ data class ReservationSlotDto(
             remainingCount = json.optInt("remainingCount"),
             available = json.optBoolean("available", true)
         )
+    }
+}
+
+data class ReservationVisitorPayload(
+    val realName: String,
+    val idCardNo: String,
+    val booker: Boolean
+) {
+    fun toJson(): JSONObject =
+        JSONObject()
+            .put("realName", realName)
+            .put("idCardNo", idCardNo)
+            .put("booker", booker)
+}
+
+data class CreateReservationOrderRequest(
+    val userId: Long,
+    val slotId: Long,
+    val visitorCount: Int,
+    val contactName: String?,
+    val contactPhone: String?,
+    val visitors: List<ReservationVisitorPayload>?,
+    val sourceType: String = "FRONTEND",
+    val clientRequestId: String,
+    val remark: String?
+) {
+    fun toJson(): JSONObject {
+        val json = JSONObject()
+            .put("userId", userId)
+            .put("slotId", slotId)
+            .put("visitorCount", visitorCount)
+            .put("sourceType", sourceType)
+            .put("clientRequestId", clientRequestId)
+
+        contactName?.trim()?.takeIf { it.isNotEmpty() }?.let { json.put("contactName", it) }
+        contactPhone?.trim()?.takeIf { it.isNotEmpty() }?.let { json.put("contactPhone", it) }
+        remark?.trim()?.takeIf { it.isNotEmpty() }?.let { json.put("remark", it) }
+        visitors?.takeIf { it.isNotEmpty() }?.let { items ->
+            json.put("visitors", JSONArray(items.map { it.toJson() }))
+        }
+        return json
+    }
+}
+
+data class ReservationOrderResult(
+    val reservationNo: String
+) {
+    companion object {
+        fun fromJson(json: JSONObject): ReservationOrderResult =
+            ReservationOrderResult(reservationNo = json.optString("reservationNo"))
     }
 }

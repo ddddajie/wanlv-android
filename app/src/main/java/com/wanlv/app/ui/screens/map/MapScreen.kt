@@ -597,6 +597,10 @@ private fun buildMapStyleJson(uiState: MapUiState): String {
                 put(rasterLayer("scenic-base-image", MapBaseImageSourceId, 0.92))
             }
         }
+        .put(basePlaceLabelLayer("base-place-label", "place"))
+        .put(baseRoadLabelLayer("base-road-label", "transportation_name"))
+        .put(baseWaterLabelLayer("base-water-label", "water_name"))
+        .put(basePoiLabelLayer("base-poi-label", "poi"))
         .put(fillLayerFromGeoJson("geo-feature-fill", GeoFeatureSourceId))
         .put(lineLayerFromGeoJson("geo-feature-line", GeoFeatureSourceId))
         .put(circleLayerFromGeoJson("geo-feature-point", GeoFeatureSourceId))
@@ -605,10 +609,7 @@ private fun buildMapStyleJson(uiState: MapUiState): String {
         .put(lineLayerFromGeoJson("route-line", RouteSourceId))
         .put(spotIconLayer("spot-icon", SpotSourceId))
         .put(symbolLayer("spot-label", SpotSourceId))
-        .put(userLocationAccuracyLayer("user-location-accuracy", UserLocationSourceId))
         .put(userLocationHeadingLayer("user-location-heading", UserLocationSourceId))
-        .put(userLocationDotLayer("user-location-dot", UserLocationSourceId))
-        .put(userLocationLabelLayer("user-location-label", UserLocationSourceId))
 
     return JSONObject()
         .put("version", 8)
@@ -891,6 +892,147 @@ private fun lineLayer(
         )
         .apply { minZoom?.let { put("minzoom", it) } }
 
+private fun basePlaceLabelLayer(id: String, sourceLayer: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "symbol")
+        .put("source", BaseSourceId)
+        .put("source-layer", sourceLayer)
+        .put("minzoom", 3)
+        .put("filter", baseMapNameFilter())
+        .put(
+            "layout",
+            JSONObject()
+                // 重点：底图文字优先使用中文名称字段，兼容 OpenMapTiles 常见 name:zh / name:zh-Hans / name。
+                .put("text-field", baseMapNameExpression())
+                .put(
+                    "text-size",
+                    JSONArray()
+                        .put("interpolate")
+                        .put(JSONArray().put("linear"))
+                        .put(JSONArray().put("zoom"))
+                        .put(3).put(10)
+                        .put(8).put(13)
+                        .put(12).put(16)
+                )
+                .put("text-font", JSONArray().put("Noto Sans Regular"))
+                .put("text-anchor", "center")
+                .put("text-allow-overlap", false)
+                .put("text-ignore-placement", false)
+        )
+        .put(
+            "paint",
+            JSONObject()
+                .put("text-color", "#334155")
+                .put("text-halo-color", "#F8FAFC")
+                .put("text-halo-width", 1.5)
+                .put("text-halo-blur", 0.2)
+        )
+
+private fun baseRoadLabelLayer(id: String, sourceLayer: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "symbol")
+        .put("source", BaseSourceId)
+        .put("source-layer", sourceLayer)
+        .put("minzoom", 11)
+        .put("filter", baseMapNameFilter())
+        .put(
+            "layout",
+            JSONObject()
+                .put("symbol-placement", "line")
+                .put("text-field", baseMapNameExpression())
+                .put(
+                    "text-size",
+                    JSONArray()
+                        .put("interpolate")
+                        .put(JSONArray().put("linear"))
+                        .put(JSONArray().put("zoom"))
+                        .put(11).put(10)
+                        .put(15).put(12)
+                        .put(18).put(14)
+                )
+                .put("text-font", JSONArray().put("Noto Sans Regular"))
+                .put("text-rotation-alignment", "map")
+                .put("text-pitch-alignment", "viewport")
+                .put("text-keep-upright", true)
+        )
+        .put(
+            "paint",
+            JSONObject()
+                .put("text-color", "#64748B")
+                .put("text-halo-color", "#FFFFFF")
+                .put("text-halo-width", 1.2)
+        )
+
+private fun baseWaterLabelLayer(id: String, sourceLayer: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "symbol")
+        .put("source", BaseSourceId)
+        .put("source-layer", sourceLayer)
+        .put("minzoom", 8)
+        .put("filter", baseMapNameFilter())
+        .put(
+            "layout",
+            JSONObject()
+                .put("symbol-placement", "line")
+                .put("text-field", baseMapNameExpression())
+                .put("text-size", 12)
+                .put("text-font", JSONArray().put("Noto Sans Regular"))
+                .put("text-rotation-alignment", "map")
+                .put("text-keep-upright", true)
+        )
+        .put(
+            "paint",
+            JSONObject()
+                .put("text-color", "#2563EB")
+                .put("text-halo-color", "#EFF6FF")
+                .put("text-halo-width", 1.1)
+        )
+
+private fun basePoiLabelLayer(id: String, sourceLayer: String): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("type", "symbol")
+        .put("source", BaseSourceId)
+        .put("source-layer", sourceLayer)
+        .put("minzoom", 15)
+        .put("filter", baseMapNameFilter())
+        .put(
+            "layout",
+            JSONObject()
+                .put("text-field", baseMapNameExpression())
+                .put("text-size", 11)
+                .put("text-font", JSONArray().put("Noto Sans Regular"))
+                .put("text-offset", JSONArray().put(0).put(0.4))
+                .put("text-anchor", "top")
+                .put("text-allow-overlap", false)
+        )
+        .put(
+            "paint",
+            JSONObject()
+                .put("text-color", "#475569")
+                .put("text-halo-color", "#FFFFFF")
+                .put("text-halo-width", 1.1)
+        )
+
+private fun baseMapNameExpression(): JSONArray =
+    JSONArray()
+        .put("coalesce")
+        .put(JSONArray().put("get").put("name:zh"))
+        .put(JSONArray().put("get").put("name:zh-Hans"))
+        .put(JSONArray().put("get").put("name:zh-Hant"))
+        .put(JSONArray().put("get").put("name"))
+
+private fun baseMapNameFilter(): JSONArray =
+    JSONArray()
+        .put("any")
+        .put(JSONArray().put("has").put("name:zh"))
+        .put(JSONArray().put("has").put("name:zh-Hans"))
+        .put(JSONArray().put("has").put("name:zh-Hant"))
+        .put(JSONArray().put("has").put("name"))
+
 private fun rasterLayer(id: String, sourceId: String, opacity: Double): JSONObject =
     JSONObject()
         .put("id", id)
@@ -1140,21 +1282,15 @@ private fun buildSpotFeatureCollection(spots: List<MapSpotDto>, selectedSpotId: 
 
 private fun buildUserLocationFeatureCollection(location: UserMapLocation?, headingDegrees: Float?): JSONObject {
     if (location == null || !location.hasValidCoordinate) return emptyFeatureCollection()
-    val accuracyMeters = location.accuracyMeters ?: 40f
     val heading = headingDegrees?.let(::normalizeBearingDegrees)
     val geometry = JSONObject()
         .put("type", "Point")
         .put("coordinates", JSONArray().put(location.longitude).put(location.latitude))
     val properties = JSONObject()
-        // 重点：我的位置也放进 MapLibre 原生 GeoJSON 图层，拖拽和缩放时能和底图保持同步。
-        .put("name", if (heading == null) "当前位置" else "当前位置 · 面向${headingDirectionLabel(heading)}")
-        .put("markerRadius", 7.8)
+        // 重点：定位导航只保留朝向箭头，不常驻文字、圆点和精度光圈，避免遮挡景区路线。
         .put("hasHeading", heading != null)
         .put("headingDegrees", heading ?: 0f)
-        .put("headingIconScale", if (heading == null) 0.0 else 1.0)
-        .put("accuracyRadius", (accuracyMeters / 4f).coerceIn(18f, 38f).toDouble())
-        .put("accuracyOpacity", if (accuracyMeters <= 80f) 0.16 else 0.1)
-        .put("accuracyMeters", accuracyMeters.toDouble())
+        .put("headingIconScale", if (heading == null) 0.0 else 0.72)
         .put("timestampMillis", location.timestampMillis)
     return featureCollection(JSONArray().put(feature(geometry, properties)))
 }

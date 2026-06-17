@@ -1,6 +1,8 @@
 package com.wanlv.app.repository
 
 import com.wanlv.app.network.ApiClient
+import com.wanlv.app.pojo.dto.CreateReservationOrderRequest
+import com.wanlv.app.pojo.dto.ReservationOrderResult
 import com.wanlv.app.pojo.dto.ReservationSlotDto
 import com.wanlv.app.pojo.dto.ReservationSpotDto
 import org.json.JSONArray
@@ -26,5 +28,10 @@ class UserReservationRepository {
             else -> null
         } ?: JSONArray()
         return List(slots.length()) { index -> ReservationSlotDto.fromJson(slots.getJSONObject(index)) }
+    }
+
+    suspend fun createOrder(request: CreateReservationOrderRequest): ReservationOrderResult {
+        val data = ApiClient.post("/reservation/orders", request.toJson()) as JSONObject
+        return ReservationOrderResult.fromJson(data)
     }
 }
