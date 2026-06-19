@@ -1,17 +1,26 @@
 package com.wanlv.app.navigation
 
 import android.os.SystemClock
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -23,22 +32,26 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.wanlv.app.ui.components.BottomTabBar
+import com.wanlv.app.ui.components.MapBottomBarRevealHandle
 import com.wanlv.app.ui.screens.booking.BookingScreen
 import com.wanlv.app.ui.screens.chat.ChatScreen
 import com.wanlv.app.ui.screens.developer.DeveloperSettingsScreen
 import com.wanlv.app.ui.screens.home.HomeScreen
 import com.wanlv.app.ui.screens.map.MapScreen
 import com.wanlv.app.ui.screens.profile.ProfileScreen
+import kotlinx.coroutines.delay
 
 private const val DeveloperModeRoute = "developer_mode"
 private const val DeveloperModeTapCount = 7
 private const val DeveloperModeTapWindowMillis = 1800L
+private const val MapBottomBarAutoHideDelayMillis = 10_000L
 
 @Composable
 fun WanLvNavGraph(navController: NavHostController) {
@@ -54,6 +67,9 @@ fun WanLvNavGraph(navController: NavHostController) {
     var homeTapCount by remember { mutableIntStateOf(0) }
     var lastHomeTapAt by remember { mutableStateOf(0L) }
     var bookingOverlayVisible by remember { mutableStateOf(false) }
+    var mapBottomBarExpanded by remember { mutableStateOf(true) }
+    var mapDigitalHumanVisible by remember { mutableStateOf(false) }
+    val isMapRoute = currentRoute == BottomNavItem.Map.route
     val blurBottomBar = currentRoute == BottomNavItem.Booking.route && bookingOverlayVisible
     val bottomBarBlur by animateDpAsState(
         targetValue = if (blurBottomBar) 18.dp else 0.dp,
@@ -63,6 +79,22 @@ fun WanLvNavGraph(navController: NavHostController) {
         targetValue = if (blurBottomBar) 1f else 0f,
         label = "bottom-bar-veil"
     )
+    val bottomBarOffset by animateDpAsState(
+        targetValue = if (isMapRoute && !mapBottomBarExpanded) 128.dp else 0.dp,
+        animationSpec = tween(durationMillis = 320),
+        label = "map-bottom-bar-offset"
+    )
+
+    LaunchedEffect(currentRoute) {
+        if (isMapRoute) {
+            // 重点：进入地图先保留导航入口，10 秒后再自动收起，避免用户刚进入时找不到菜单。
+            mapBottomBarExpanded = true
+            delay(MapBottomBarAutoHideDelayMillis)
+            mapBottomBarExpanded = false
+        } else {
+            mapDigitalHumanVisible = false
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -73,7 +105,14 @@ fun WanLvNavGraph(navController: NavHostController) {
             composable(BottomNavItem.Home.route) {
                 HomeScreen()
             }
-            composable(BottomNavItem.Map.route) { MapScreen() }
+            composable(BottomNavItem.Map.route) {
+                MapScreen(
+                    bottomBarExpanded = mapBottomBarExpanded,
+                    onDigitalHumanVisibilityChange = { mapDigitalHumanVisible = it },
+                    onRequestBottomBarExpand = { mapBottomBarExpanded = true },
+                    onRequestBottomBarCollapse = { mapBottomBarExpanded = false }
+                )
+            }
             composable(BottomNavItem.Booking.route) {
                 BookingScreen(onOverlayVisibilityChange = { bookingOverlayVisible = it })
             }
@@ -91,7 +130,24 @@ fun WanLvNavGraph(navController: NavHostController) {
                 BottomTabBar(
                     items = tabs,
                     currentRoute = currentRoute,
-                    modifier = Modifier.blur(bottomBarBlur),
+                    modifier = Modifier
+                        .blur(bottomBarBlur)
+                        .offset(y = bottomBarOffset)
+                        .pointerInput(isMapRoute, mapBottomBarExpanded) {
+                            if (!isMapRoute || !mapBottomBarExpanded) return@pointerInput
+                            var downwardDrag = 0f
+                            detectVerticalDragGestures(
+                                onDragStart = { downwardDrag = 0f },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    downwardDrag = (downwardDrag + dragAmount).coerceAtLeast(0f)
+                                },
+                                onDragEnd = {
+                                    // 重点：导航栏向下拖过约 24dp 后收起，轻微滑动不会误触。
+                                    if (downwardDrag >= 24.dp.toPx()) mapBottomBarExpanded = false
+                                }
+                            )
+                        },
                     onTabClick = { item ->
                         if (!blurBottomBar) {
                             val now = SystemClock.elapsedRealtime()
@@ -120,6 +176,9 @@ fun WanLvNavGraph(navController: NavHostController) {
                                     launchSingleTop = true
                                 }
                             } else {
+                                if (item == BottomNavItem.Map) {
+                                    mapBottomBarExpanded = true
+                                }
                                 navController.navigate(item.route) {
                                     popUpTo(BottomNavItem.Home.route) { saveState = true }
                                     launchSingleTop = true
@@ -130,13 +189,37 @@ fun WanLvNavGraph(navController: NavHostController) {
                     }
                 )
 
+                AnimatedVisibility(
+                    visible = isMapRoute && !mapBottomBarExpanded && !mapDigitalHumanVisible,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 2 },
+                    exit = fadeOut(tween(120)) + slideOutVertically(tween(160)) { it / 2 }
+                ) {
+                    MapBottomBarRevealHandle(
+                        onReveal = { mapBottomBarExpanded = true },
+                        modifier = Modifier.pointerInput(Unit) {
+                            var upwardDrag = 0f
+                            detectVerticalDragGestures(
+                                onDragStart = { upwardDrag = 0f },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    upwardDrag = (upwardDrag + dragAmount).coerceAtMost(0f)
+                                },
+                                onDragEnd = {
+                                    if (upwardDrag <= -18.dp.toPx()) mapBottomBarExpanded = true
+                                }
+                            )
+                        }
+                    )
+                }
+
                 if (blurBottomBar || bottomBarVeilAlpha > 0.01f) {
                     Box(
                         modifier = Modifier
                             .navigationBarsPadding()
                             .fillMaxWidth()
                             .padding(horizontal = 22.dp)
-                            .padding(top = 12.dp, bottom = 2.dp)
+//                            .padding(top = 1.dp, bottom = 1.dp)
                             .height(76.dp)
                             .clip(RoundedCornerShape(42.dp))
                             // 重点：底部导航栏在页面外层绘制，预约弹窗打开时单独补一层雾面，保证和页面内容一起退到背景里。

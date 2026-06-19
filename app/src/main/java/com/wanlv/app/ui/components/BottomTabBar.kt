@@ -36,10 +36,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import com.wanlv.app.navigation.BottomNavItem
 import kotlin.math.PI
 import kotlin.math.sin
@@ -154,6 +157,51 @@ fun BottomTabBar(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun MapBottomBarRevealHandle(
+    onReveal: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(22.dp)
+    Box(
+        modifier = modifier
+            .navigationBarsPadding()
+            .padding(bottom = 4.dp)
+            .size(width = 58.dp, height = 36.dp)
+            .shadow(
+                elevation = 18.dp,
+                shape = shape,
+                ambientColor = Color(0xFF8A96A3).copy(alpha = 0.24f),
+                spotColor = Color(0xFF5F6873).copy(alpha = 0.18f)
+            )
+            .clip(shape)
+            // 重点：收起导航栏后仅保留轻量的液态玻璃箭头，点击或上拉都可以恢复菜单。
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.86f),
+                        Color(0xFFEAF4F2).copy(alpha = 0.72f),
+                        Color.White.copy(alpha = 0.68f)
+                    )
+                )
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.82f), shape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onReveal
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.KeyboardArrowUp,
+            contentDescription = "展开导航菜单",
+            tint = Color(0xFF46515C),
+            modifier = Modifier.size(25.dp)
+        )
     }
 }
 

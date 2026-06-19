@@ -22,10 +22,12 @@ import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +44,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -83,6 +88,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +116,7 @@ import com.wanlv.app.pojo.dto.MapSpotDto
 import com.wanlv.app.pojo.dto.ScenicAreaDto
 import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
 import com.wanlv.app.ui.components.IOSCard
+import com.wanlv.app.ui.components.MapBottomBarHandleAvoidance
 import com.wanlv.app.ui.theme.WanLvBackground
 import com.wanlv.app.ui.theme.WanLvDivider
 import com.wanlv.app.ui.theme.WanLvGreen
@@ -154,6 +161,10 @@ private data class UserMapLocation(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
+    bottomBarExpanded: Boolean = true,
+    onDigitalHumanVisibilityChange: (Boolean) -> Unit = {},
+    onRequestBottomBarExpand: () -> Unit = {},
+    onRequestBottomBarCollapse: () -> Unit = {},
     viewModel: MapViewModel = viewModel(),
     digitalHumanViewModel: MapDigitalHumanViewModel = viewModel()
 ) {
@@ -167,6 +178,21 @@ fun MapScreen(
     var showRoutePanel by remember { mutableStateOf(false) }
     var locateRequestId by remember { mutableStateOf(0) }
     var userLocation by remember { mutableStateOf<UserMapLocation?>(null) }
+    val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomContentAvoidance by animateDpAsState(
+        targetValue = if (bottomBarExpanded) FloatingBottomBarAvoidance else MapBottomBarHandleAvoidance,
+        label = "map-bottom-content-avoidance"
+    )
+    val digitalHumanInputAvoidance by animateDpAsState(
+        targetValue = if (bottomBarExpanded) {
+            // 重点：展开时取消额外留白，让数字人输入框与液态玻璃导航栏贴得更紧。
+            FloatingBottomBarAvoidance
+        } else {
+            // 数字人输入框出现时不再预留箭头区域，只避让系统导航栏。
+            navigationBarInset + 8.dp
+        },
+        label = "digital-human-input-avoidance"
+    )
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
@@ -209,6 +235,10 @@ fun MapScreen(
 
     LaunchedEffect(isLoggedIn) {
         if (!isLoggedIn) digitalHumanViewModel.close()
+    }
+
+    LaunchedEffect(digitalHumanState.visible) {
+        onDigitalHumanVisibilityChange(digitalHumanState.visible)
     }
 
     Box(
@@ -296,7 +326,8 @@ fun MapScreen(
         ) {
             MapBottomOverlay(
                 uiState = uiState,
-                onCloseSpot = { viewModel.selectSpot(null) }
+                onCloseSpot = { viewModel.selectSpot(null) },
+                bottomAvoidance = bottomContentAvoidance
             )
         }
 
@@ -305,7 +336,7 @@ fun MapScreen(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(horizontal = 14.dp)
-                .padding(bottom = FloatingBottomBarAvoidance)
+                .padding(bottom = bottomContentAvoidance)
         ) {
             RouteRecommendationPanel(
                 routes = uiState.recommendedRoutes,
@@ -321,7 +352,25 @@ fun MapScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 22.dp)
-                .padding(bottom = FloatingBottomBarAvoidance + 12.dp)
+                // 重点：底栏收起后数字人输入框同步下移，并由输入框自身承接唤出导航栏的手势。
+                .padding(bottom = digitalHumanInputAvoidance)
+                .pointerInput(bottomBarExpanded) {
+                    var verticalDragDistance = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { verticalDragDistance = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            verticalDragDistance += dragAmount
+                        },
+                        onDragEnd = {
+                            // 重点：数字人输入框支持双向拖动，上拉展开导航栏、下拉重新收起。
+                            when {
+                                !bottomBarExpanded && verticalDragDistance <= -18.dp.toPx() -> onRequestBottomBarExpand()
+                                bottomBarExpanded && verticalDragDistance >= 18.dp.toPx() -> onRequestBottomBarCollapse()
+                            }
+                        }
+                    )
+                }
         ) {
             DigitalHumanInputBar(
                 value = digitalHumanState.input,
@@ -1610,6 +1659,7 @@ private fun DigitalHumanInputBar(
 private fun MapBottomOverlay(
     uiState: MapUiState,
     onCloseSpot: () -> Unit,
+    bottomAvoidance: Dp,
     modifier: Modifier = Modifier
 ) {
     val spot = uiState.selectedSpot ?: return
@@ -1617,7 +1667,7 @@ private fun MapBottomOverlay(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp)
-            .padding(bottom = FloatingBottomBarAvoidance),
+            .padding(bottom = bottomAvoidance),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         SpotInfoCard(spot = spot, onClose = onCloseSpot)
