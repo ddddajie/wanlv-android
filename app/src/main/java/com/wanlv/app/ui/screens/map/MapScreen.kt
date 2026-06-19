@@ -169,6 +169,7 @@ fun MapScreen(
     digitalHumanViewModel: MapDigitalHumanViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val headingDegrees = rememberDeviceHeadingDegrees()
     val uiState = viewModel.uiState
     val digitalHumanState = digitalHumanViewModel.uiState
@@ -208,6 +209,20 @@ fun MapScreen(
             locateRequestId += 1
         } else {
             locationPermissionLauncher.launch(LocationPermissions)
+        }
+    }
+
+    DisposableEffect(lifecycle, digitalHumanViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                digitalHumanViewModel.close("android_on_stop")
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            // 重点：切换到其他底部页面时地图 ViewModel 可能仍被保留，这里必须主动断开数字人会话。
+            digitalHumanViewModel.close("route_disposed")
         }
     }
 

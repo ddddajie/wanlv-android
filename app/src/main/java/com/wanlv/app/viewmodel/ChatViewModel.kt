@@ -19,6 +19,10 @@ import com.wanlv.app.digitalhuman.GreenScreenKeyer
 import com.wanlv.app.digitalhuman.sanitizeDigitalHumanSpeechText
 import com.wanlv.app.model.ChatMessage
 import com.wanlv.app.repository.UserAgentRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -58,6 +62,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val sessionManager = DigitalHumanSessionManager(application.applicationContext)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connectMutex = Mutex()
+    private var connectionJob: Job? = null
+    private var sessionGeneration = 0L
     private val previewBitmaps = ChatDigitalHumanPersona.all.associateWith { persona ->
         GreenScreenKeyer.keyBitmap(BitmapFactory.decodeResource(application.resources, persona.previewResId))
     }
@@ -89,7 +95,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun switchDigitalHumanPersona(persona: ChatDigitalHumanPersona) {
         if (persona == digitalHumanState.persona) return
         val shouldReconnect = digitalHumanState.connected || digitalHumanState.connecting
-        sessionManager.disconnect()
+        sessionGeneration += 1L
+        connectionJob?.cancel()
+        sessionManager.disconnect("persona_switched")
         digitalHumanState = ChatDigitalHumanUiState(
             persona = persona,
             status = if (shouldReconnect) "正在切换为${persona.shortLabel}..." else "已切换为${persona.label}"
@@ -99,9 +107,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connectDigitalHuman() {
         if (digitalHumanState.connected || digitalHumanState.connecting) return
-        viewModelScope.launch {
-            runCatching { ensureDigitalHumanConnected() }
-                .onFailure { error ->
+        val generation = sessionGeneration
+        val persona = digitalHumanState.persona
+        connectionJob?.cancel()
+        connectionJob = viewModelScope.launch {
+            try {
+                ensureDigitalHumanConnected(generation, persona)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (generation == sessionGeneration && persona == digitalHumanState.persona) {
                     digitalHumanState = digitalHumanState.copy(
                         connecting = false,
                         connected = false,
@@ -110,11 +125,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         status = error.message ?: "数字人连接失败"
                     )
                 }
+            }
         }
     }
 
     fun disconnectDigitalHuman() {
-        sessionManager.disconnect()
+        disconnectDigitalHuman("manual_disconnect")
+    }
+
+    fun onHostStopped() {
+        disconnectDigitalHuman("android_on_stop")
+    }
+
+    fun onRouteDisposed() {
+        disconnectDigitalHuman("route_disposed")
+    }
+
+    private fun disconnectDigitalHuman(reason: String) {
+        sessionGeneration += 1L
+        connectionJob?.cancel()
+        connectionJob = null
+        mainHandler.removeCallbacksAndMessages(null)
+        sessionManager.disconnect(reason)
         digitalHumanState = ChatDigitalHumanUiState(
             persona = digitalHumanState.persona,
             status = "数字人已断开，不影响继续问答"
@@ -149,9 +181,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun ensureDigitalHumanConnected(): Long = connectMutex.withLock {
+    private suspend fun ensureDigitalHumanConnected(
+        generation: Long,
+        persona: ChatDigitalHumanPersona
+    ): Long = connectMutex.withLock {
+        ensureSessionCurrent(generation, persona)
         sessionManager.sessionId ?: run {
-            val persona = digitalHumanState.persona
             digitalHumanState = digitalHumanState.copy(
                 connecting = true,
                 connected = false,
@@ -160,8 +195,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
             val sessionId = sessionManager.connect(
                 baseUrl = persona.apiUrl,
-                onVideoFrame = ::onVideoFrame
+                onVideoFrame = { bitmap -> onVideoFrame(generation, persona, bitmap) },
+                onConnectionLost = { reason -> onConnectionLost(generation, persona, reason) }
             )
+            ensureSessionCurrent(generation, persona)
             digitalHumanState = digitalHumanState.copy(
                 connecting = false,
                 connected = true,
@@ -169,6 +206,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 status = "${persona.shortLabel}已就绪"
             )
             sessionId
+        }
+    }
+
+    private suspend fun ensureSessionCurrent(generation: Long, persona: ChatDigitalHumanPersona) {
+        currentCoroutineContext().ensureActive()
+        if (generation != sessionGeneration || persona != digitalHumanState.persona) {
+            throw CancellationException("数字人会话已关闭")
         }
     }
 
@@ -190,13 +234,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun onVideoFrame(bitmap: Bitmap) {
+    private fun onVideoFrame(generation: Long, persona: ChatDigitalHumanPersona, bitmap: Bitmap) {
         mainHandler.post {
-            digitalHumanState = digitalHumanState.copy(videoFrame = bitmap)
+            if (generation == sessionGeneration && persona == digitalHumanState.persona) {
+                digitalHumanState = digitalHumanState.copy(videoFrame = bitmap)
+            }
+        }
+    }
+
+    private fun onConnectionLost(generation: Long, persona: ChatDigitalHumanPersona, reason: String) {
+        mainHandler.post {
+            if (generation == sessionGeneration && persona == digitalHumanState.persona) {
+                digitalHumanState = digitalHumanState.copy(
+                    connecting = false,
+                    connected = false,
+                    speaking = false,
+                    sessionId = null,
+                    status = if (reason == "webrtc_disconnected_timeout") {
+                        "${persona.shortLabel}连接已断开，请重新连接"
+                    } else {
+                        "${persona.shortLabel}连接异常，请重新连接"
+                    }
+                )
+            }
         }
     }
 
     override fun onCleared() {
+        sessionGeneration += 1L
+        connectionJob?.cancel()
+        mainHandler.removeCallbacksAndMessages(null)
         sessionManager.release()
         super.onCleared()
     }

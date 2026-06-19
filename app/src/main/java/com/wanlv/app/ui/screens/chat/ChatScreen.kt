@@ -1,10 +1,12 @@
 package com.wanlv.app.ui.screens.chat
 
 import android.graphics.Bitmap
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -38,6 +43,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +54,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -54,6 +62,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wanlv.app.model.ChatMessage
 import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
@@ -69,8 +80,32 @@ import com.wanlv.app.viewmodel.ChatDigitalHumanUiState
 import com.wanlv.app.viewmodel.ChatViewModel
 
 @Composable
-fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
+fun ChatScreen(
+    bottomBarExpanded: Boolean = true,
+    onRequestBottomBarExpand: () -> Unit = {},
+    onRequestBottomBarCollapse: () -> Unit = {},
+    viewModel: ChatViewModel = viewModel()
+) {
     val digitalHumanState = viewModel.digitalHumanState
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val inputBottomAvoidance by animateDpAsState(
+        targetValue = if (bottomBarExpanded) FloatingBottomBarAvoidance else navigationBarInset + 8.dp,
+        label = "chat-input-bottom-avoidance"
+    )
+
+    DisposableEffect(lifecycle, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.onHostStopped()
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            // 重点：底部导航保留 ViewModel 时，离开聊天页也要主动归还数字人 session。
+            viewModel.onRouteDisposed()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -96,7 +131,25 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
             value = viewModel.input.value,
             onValueChange = viewModel::updateInput,
             onSend = viewModel::sendMessage,
-            modifier = Modifier.padding(bottom = FloatingBottomBarAvoidance)
+            modifier = Modifier
+                .padding(bottom = inputBottomAvoidance)
+                .pointerInput(bottomBarExpanded) {
+                    var verticalDragDistance = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { verticalDragDistance = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            verticalDragDistance += dragAmount
+                        },
+                        onDragEnd = {
+                            // 重点：上下滑动问答输入框即可展开或收起导航栏，轻微滑动不会误触。
+                            when {
+                                !bottomBarExpanded && verticalDragDistance <= -18.dp.toPx() -> onRequestBottomBarExpand()
+                                bottomBarExpanded && verticalDragDistance >= 18.dp.toPx() -> onRequestBottomBarCollapse()
+                            }
+                        }
+                    )
+                }
         )
     }
 }

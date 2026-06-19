@@ -4,6 +4,7 @@ import com.wanlv.app.network.ApiException
 import com.wanlv.app.pojo.dto.DigitalHumanOfferDto
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -23,7 +24,10 @@ class DigitalHumanRepository {
         val body = JSONObject()
             .put("sdp", sdp)
             .put("type", type)
-        return DigitalHumanOfferDto.fromJson(post(baseUrl, "/offer", body))
+        // 重点：即使页面在请求期间退出，也要读完 /offer 响应中的 sessionid，交给上层释放迟到会话。
+        return withContext(NonCancellable) {
+            DigitalHumanOfferDto.fromJson(post(baseUrl, "/offer", body))
+        }
     }
 
     suspend fun speak(baseUrl: String, text: String, sessionId: Long) {
@@ -42,7 +46,27 @@ class DigitalHumanRepository {
         post(baseUrl, "/interrupt_talk", body)
     }
 
-    private suspend fun post(baseUrl: String, path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
+    suspend fun closeSession(baseUrl: String, sessionId: Long, reason: String) {
+        val body = JSONObject()
+            .put("sessionid", sessionId)
+            .put("reason", reason)
+        val response = post(
+            baseUrl = baseUrl,
+            path = "/session/close",
+            body = body,
+            callTimeoutSeconds = CloseSessionTimeoutSeconds
+        )
+        if (response.optInt("code", -1) != 0) {
+            throw ApiException(response.optString("msg", "数字人会话释放失败"), response.optInt("code"))
+        }
+    }
+
+    private suspend fun post(
+        baseUrl: String,
+        path: String,
+        body: JSONObject,
+        callTimeoutSeconds: Long? = null
+    ): JSONObject = withContext(Dispatchers.IO) {
         val normalizedBaseUrl = baseUrl.trimEnd('/')
         if (normalizedBaseUrl.isBlank()) throw ApiException("数字人服务地址未配置")
         val request = Request.Builder()
@@ -51,7 +75,9 @@ class DigitalHumanRepository {
             .post(body.toString().toRequestBody(jsonMediaType))
             .build()
 
-        client.newCall(request).execute().use { response ->
+        val call = client.newCall(request)
+        callTimeoutSeconds?.let { call.timeout().timeout(it, TimeUnit.SECONDS) }
+        call.execute().use { response ->
             val status = response.code
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw ApiException(text.ifBlank { "数字人服务请求失败：$status" }, status)
@@ -61,5 +87,8 @@ class DigitalHumanRepository {
             }
         }
     }
-}
 
+    private companion object {
+        const val CloseSessionTimeoutSeconds = 3L
+    }
+}
