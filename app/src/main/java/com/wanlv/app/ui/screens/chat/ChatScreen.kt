@@ -14,7 +14,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +61,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,17 +69,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -97,9 +106,82 @@ import com.wanlv.app.ui.theme.WanLvTextSecondary
 import com.wanlv.app.viewmodel.ChatDigitalHumanPersona
 import com.wanlv.app.viewmodel.ChatDigitalHumanUiState
 import com.wanlv.app.viewmodel.ChatViewModel
+import kotlin.math.roundToInt
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val DigitalHumanPersonaHoldMillis = 3_000L
+
+private enum class DigitalHumanHoldResult {
+    Released,
+    DragStarted
+}
+
+private fun constrainChatDigitalHumanDragOffset(
+    dragOffset: Offset,
+    viewportSize: IntSize,
+    windowSize: IntSize,
+    basePosition: Offset,
+    safeBottomPx: Float
+): Offset {
+    if (viewportSize == IntSize.Zero || windowSize == IntSize.Zero) return dragOffset
+
+    val minX = -basePosition.x
+    val maxX = (viewportSize.width - windowSize.width - basePosition.x).coerceAtLeast(minX)
+    val minY = -basePosition.y
+    val maxY = (viewportSize.height - safeBottomPx - windowSize.height - basePosition.y)
+        .coerceAtLeast(minY)
+    return Offset(
+        x = dragOffset.x.coerceIn(minX, maxX),
+        y = dragOffset.y.coerceIn(minY, maxY)
+    )
+}
+
+private suspend fun PointerInputScope.detectFloatingDigitalHumanGestures(
+    onDrag: (Offset) -> Unit,
+    onShowPersonaPicker: () -> Unit
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val longPress = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+        var initialDragAmount = Offset.Zero
+        val personaDelayMillis = (DigitalHumanPersonaHoldMillis - viewConfiguration.longPressTimeoutMillis)
+            .coerceAtLeast(0L)
+        val holdResult = withTimeoutOrNull(personaDelayMillis) {
+            while (true) {
+                val change = awaitPointerEvent().changes.firstOrNull { it.id == longPress.id }
+                    ?: return@withTimeoutOrNull DigitalHumanHoldResult.Released
+                if (!change.pressed) return@withTimeoutOrNull DigitalHumanHoldResult.Released
+
+                val displacement = change.position - longPress.position
+                if (displacement.getDistance() >= viewConfiguration.touchSlop) {
+                    initialDragAmount = displacement
+                    change.consume()
+                    return@withTimeoutOrNull DigitalHumanHoldResult.DragStarted
+                }
+            }
+        }
+
+        when (holdResult) {
+            null -> onShowPersonaPicker()
+            DigitalHumanHoldResult.Released -> Unit
+            DigitalHumanHoldResult.DragStarted -> {
+                onDrag(initialDragAmount)
+                while (true) {
+                    val change = awaitPointerEvent().changes.firstOrNull { it.id == longPress.id } ?: break
+                    if (!change.pressed) {
+                        change.consume()
+                        break
+                    }
+                    val dragAmount = change.positionChange()
+                    if (dragAmount != Offset.Zero) {
+                        change.consume()
+                        onDrag(dragAmount)
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun ChatScreen(
@@ -111,9 +193,16 @@ fun ChatScreen(
     val digitalHumanState = viewModel.digitalHumanState
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var showPersonaPicker by remember { mutableStateOf(false) }
+    var chatViewportSize by remember { mutableStateOf(IntSize.Zero) }
+    var digitalHumanWindowSize by remember { mutableStateOf(IntSize.Zero) }
+    var digitalHumanDragOffset by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
     val isImeVisible = WindowInsets.ime.getBottom(density) > 0
     val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val navigationBarInsetPx = with(density) { navigationBarInset.toPx() }
+    val digitalHumanBasePosition = with(density) {
+        Offset(x = 18.dp.toPx(), y = 4.dp.toPx())
+    }
     val inputBottomAvoidance by animateDpAsState(
         targetValue = when {
             // 重点：键盘出现时只使用 imePadding 避让，不能再叠加导航栏留白，否则输入框会被重复上推。
@@ -130,6 +219,22 @@ fun ChatScreen(
 
     LaunchedEffect(Unit) {
         viewModel.refreshScenicContext()
+    }
+
+    LaunchedEffect(
+        chatViewportSize,
+        digitalHumanWindowSize,
+        digitalHumanBasePosition,
+        navigationBarInsetPx
+    ) {
+        // 重点：屏幕方向、键盘或系统栏变化后收紧可拖动范围，确保数字人始终能够被再次操作。
+        digitalHumanDragOffset = constrainChatDigitalHumanDragOffset(
+            dragOffset = digitalHumanDragOffset,
+            viewportSize = chatViewportSize,
+            windowSize = digitalHumanWindowSize,
+            basePosition = digitalHumanBasePosition,
+            safeBottomPx = navigationBarInsetPx
+        )
     }
 
     DisposableEffect(lifecycle, viewModel) {
@@ -150,6 +255,7 @@ fun ChatScreen(
             .background(WanLvBackground)
             .statusBarsPadding()
             .imePadding()
+            .onSizeChanged { chatViewportSize = it }
     ) {
         Column(Modifier.fillMaxSize()) {
             LazyColumn(
@@ -206,14 +312,29 @@ fun ChatScreen(
             visible = digitalHumanState.connected,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(top = 4.dp, start = 18.dp),
+                .offset {
+                    IntOffset(
+                        x = (digitalHumanBasePosition.x + digitalHumanDragOffset.x).roundToInt(),
+                        y = (digitalHumanBasePosition.y + digitalHumanDragOffset.y).roundToInt()
+                    )
+                },
             enter = fadeIn(),
             exit = fadeOut()
         ) {
             FloatingDigitalHuman(
                 state = digitalHumanState,
                 previewBitmap = viewModel.currentDigitalHumanPreviewBitmap,
-                onShowPersonaPicker = { showPersonaPicker = true }
+                onDrag = { dragAmount ->
+                    digitalHumanDragOffset = constrainChatDigitalHumanDragOffset(
+                        dragOffset = digitalHumanDragOffset + dragAmount,
+                        viewportSize = chatViewportSize,
+                        windowSize = digitalHumanWindowSize,
+                        basePosition = digitalHumanBasePosition,
+                        safeBottomPx = navigationBarInsetPx
+                    )
+                },
+                onShowPersonaPicker = { showPersonaPicker = true },
+                modifier = Modifier.onSizeChanged { digitalHumanWindowSize = it }
             )
         }
     }
@@ -312,28 +433,28 @@ private fun DigitalHumanConnectionButton(
 private fun FloatingDigitalHuman(
     state: ChatDigitalHumanUiState,
     previewBitmap: Bitmap,
-    onShowPersonaPicker: () -> Unit
+    onDrag: (Offset) -> Unit,
+    onShowPersonaPicker: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val displayBitmap = state.videoFrame ?: previewBitmap
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    val currentOnShowPersonaPicker by rememberUpdatedState(onShowPersonaPicker)
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(width = 104.dp, height = 150.dp)
-            .pointerInput(state.persona) {
-                detectTapGestures(
-                    onPress = {
-                        // 重点：形象选择必须持续按住满 3 秒，提前松手不会误触弹窗。
-                        val releasedBeforeThreshold = withTimeoutOrNull(DigitalHumanPersonaHoldMillis) {
-                            tryAwaitRelease()
-                        }
-                        if (releasedBeforeThreshold == null) onShowPersonaPicker()
-                    }
+            .pointerInput(Unit) {
+                // 重点：移动超过防抖距离后锁定为拖动；保持不动满 3 秒才切换形象，两种手势不会同时触发。
+                detectFloatingDigitalHumanGestures(
+                    onDrag = currentOnDrag,
+                    onShowPersonaPicker = currentOnShowPersonaPicker
                 )
             },
         contentAlignment = Alignment.Center
     ) {
         Image(
             bitmap = displayBitmap.asImageBitmap(),
-            contentDescription = "${state.persona.label}，长按三秒切换形象",
+            contentDescription = "${state.persona.label}，长按拖动，保持三秒切换形象",
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Fit
         )
@@ -473,7 +594,7 @@ private fun ChatUsageTip() {
             .padding(horizontal = 14.dp, vertical = 11.dp)
     ) {
         Text(
-            "连接数字人后可同步播报回复；不连接也能正常文字问答。\n长按数字人三秒可以切换数字人形象。",
+            "连接数字人后可同步播报回复；不连接也能正常文字问答。\n按住数字人并移动可更换位置，保持不动满三秒可切换形象。",
             color = Color.White,
             fontSize = 13.sp,
             lineHeight = 19.sp

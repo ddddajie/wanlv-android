@@ -32,6 +32,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +53,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -91,13 +94,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
@@ -105,6 +111,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -141,6 +149,7 @@ import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -167,6 +176,27 @@ private data class UserMapLocation(
         get() = longitude in -180.0..180.0 && latitude in -90.0..90.0
 }
 
+private fun constrainDigitalHumanDragOffset(
+    dragOffset: Offset,
+    viewportSize: IntSize,
+    windowSize: IntSize,
+    basePosition: Offset,
+    safeTopPx: Float,
+    safeBottomPx: Float
+): Offset {
+    if (viewportSize == IntSize.Zero || windowSize == IntSize.Zero) return dragOffset
+
+    val minX = -basePosition.x
+    val maxX = (viewportSize.width - windowSize.width - basePosition.x).coerceAtLeast(minX)
+    val minY = safeTopPx - basePosition.y
+    val maxY = (viewportSize.height - safeBottomPx - windowSize.height - basePosition.y)
+        .coerceAtLeast(minY)
+    return Offset(
+        x = dragOffset.x.coerceIn(minX, maxX),
+        y = dragOffset.y.coerceIn(minY, maxY)
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
@@ -188,7 +218,17 @@ fun MapScreen(
     var showRoutePanel by remember { mutableStateOf(false) }
     var locateRequestId by remember { mutableStateOf(0) }
     var userLocation by remember { mutableStateOf<UserMapLocation?>(null) }
+    var mapViewportSize by remember { mutableStateOf(IntSize.Zero) }
+    var digitalHumanWindowSize by remember { mutableStateOf(IntSize.Zero) }
+    var digitalHumanDragOffset by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
+    val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val statusBarInsetPx = with(density) { statusBarInset.toPx() }
+    val navigationBarInsetPx = with(density) { navigationBarInset.toPx() }
+    val digitalHumanBasePosition = with(density) {
+        Offset(x = 18.dp.toPx(), y = statusBarInsetPx + 58.dp.toPx())
+    }
     val bottomContentAvoidance by animateDpAsState(
         targetValue = if (bottomBarExpanded) FloatingBottomBarAvoidance else MapBottomBarHandleAvoidance,
         label = "map-bottom-content-avoidance"
@@ -272,10 +312,29 @@ fun MapScreen(
         onDigitalHumanVisibilityChange(digitalHumanState.visible)
     }
 
+    LaunchedEffect(
+        mapViewportSize,
+        digitalHumanWindowSize,
+        digitalHumanBasePosition,
+        statusBarInsetPx,
+        navigationBarInsetPx
+    ) {
+        // 重点：旋转屏幕或系统栏尺寸变化后重新收紧边界，避免数字人停在屏幕外无法拖回。
+        digitalHumanDragOffset = constrainDigitalHumanDragOffset(
+            dragOffset = digitalHumanDragOffset,
+            viewportSize = mapViewportSize,
+            windowSize = digitalHumanWindowSize,
+            basePosition = digitalHumanBasePosition,
+            safeTopPx = statusBarInsetPx,
+            safeBottomPx = navigationBarInsetPx
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(WanLvBackground)
+            .onSizeChanged { mapViewportSize = it }
     ) {
         MapLibreGuideMap(
             uiState = uiState,
@@ -343,13 +402,30 @@ fun MapScreen(
             visible = digitalHumanState.visible,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(top = 58.dp, start = 18.dp)
+                .offset {
+                    IntOffset(
+                        x = (digitalHumanBasePosition.x + digitalHumanDragOffset.x).roundToInt(),
+                        y = (digitalHumanBasePosition.y + digitalHumanDragOffset.y).roundToInt()
+                    )
+                }
         ) {
             DigitalHumanWindow(
                 state = digitalHumanState,
                 previewBitmap = digitalHumanViewModel.previewBitmap,
-                onClose = digitalHumanViewModel::close
+                dragEnabled = digitalHumanState.connected,
+                onDrag = { dragAmount ->
+                    // 重点：只有连接成功后才允许长按拖动，并始终将数字人限制在安全显示区域内。
+                    digitalHumanDragOffset = constrainDigitalHumanDragOffset(
+                        dragOffset = digitalHumanDragOffset + dragAmount,
+                        viewportSize = mapViewportSize,
+                        windowSize = digitalHumanWindowSize,
+                        basePosition = digitalHumanBasePosition,
+                        safeTopPx = statusBarInsetPx,
+                        safeBottomPx = navigationBarInsetPx
+                    )
+                },
+                onClose = digitalHumanViewModel::close,
+                modifier = Modifier.onSizeChanged { digitalHumanWindowSize = it }
             )
         }
 
@@ -1601,17 +1677,29 @@ private fun LiquidGlassIconButton(
 private fun DigitalHumanWindow(
     state: MapDigitalHumanUiState,
     previewBitmap: Bitmap,
-    onClose: () -> Unit
+    dragEnabled: Boolean,
+    onDrag: (Offset) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val displayBitmap = state.videoFrame ?: previewBitmap
+    val currentOnDrag by rememberUpdatedState(onDrag)
     Box(
-        modifier = Modifier.size(width = 118.dp, height = 184.dp),
+        modifier = modifier.size(width = 118.dp, height = 184.dp),
         contentAlignment = Alignment.Center
     ) {
         Image(
             bitmap = displayBitmap.asImageBitmap(),
-            contentDescription = "数字导游",
-            modifier = Modifier.fillMaxSize(),
+            contentDescription = if (dragEnabled) "数字导游，长按拖动更换位置" else "数字导游",
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(dragEnabled) {
+                    if (!dragEnabled) return@pointerInput
+                    detectDragGesturesAfterLongPress { change, dragAmount ->
+                        change.consume()
+                        currentOnDrag(dragAmount)
+                    }
+                },
             contentScale = ContentScale.Fit
         )
 
