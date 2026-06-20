@@ -18,7 +18,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppConfig.init(applicationContext)
-        AuthSession.initFromConfig()
+        AuthSession.init(applicationContext)
         // 重点：数字人播报属于媒体播放，进入应用后让实体音量键默认调节媒体音量。
         volumeControlStream = AudioManager.STREAM_MUSIC
         enableEdgeToEdge()

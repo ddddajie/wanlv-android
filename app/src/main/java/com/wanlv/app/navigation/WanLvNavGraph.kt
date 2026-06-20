@@ -58,6 +58,7 @@ private const val ChatBottomBarAutoHideDelayMillis = 5_000L
 @Composable
 fun WanLvNavGraph(navController: NavHostController) {
     val isLoggedIn = AuthSession.userId != null && !AuthSession.token.isNullOrBlank()
+    val loginExpirationVersion = AuthSession.loginExpirationVersion
     val tabs = buildList {
         add(BottomNavItem.Home)
         add(BottomNavItem.Map)
@@ -71,6 +72,7 @@ fun WanLvNavGraph(navController: NavHostController) {
     var homeTapCount by remember { mutableIntStateOf(0) }
     var lastHomeTapAt by remember { mutableStateOf(0L) }
     var bookingOverlayVisible by remember { mutableStateOf(false) }
+    var profileOverlayVisible by remember { mutableStateOf(false) }
     var mapBottomBarExpanded by remember { mutableStateOf(true) }
     var chatBottomBarExpanded by remember { mutableStateOf(true) }
     var mapDigitalHumanVisible by remember { mutableStateOf(false) }
@@ -82,7 +84,18 @@ fun WanLvNavGraph(navController: NavHostController) {
         isChatRoute -> chatBottomBarExpanded
         else -> true
     }
-    val blurBottomBar = currentRoute == BottomNavItem.Booking.route && bookingOverlayVisible
+
+    LaunchedEffect(loginExpirationVersion) {
+        if (loginExpirationVersion > 0 && currentRoute != BottomNavItem.Profile.route) {
+            // 重点：刷新失败表示登录态不可恢复，统一进入个人页的登录区域。
+            navController.navigate(BottomNavItem.Profile.route) {
+                launchSingleTop = true
+            }
+        }
+    }
+    val blurBottomBar =
+        (currentRoute == BottomNavItem.Booking.route && bookingOverlayVisible) ||
+            (currentRoute == BottomNavItem.Profile.route && profileOverlayVisible)
     val bottomBarBlur by animateDpAsState(
         targetValue = if (blurBottomBar) 18.dp else 0.dp,
         label = "bottom-bar-blur"
@@ -143,7 +156,9 @@ fun WanLvNavGraph(navController: NavHostController) {
                     onRequestBottomBarCollapse = { chatBottomBarExpanded = false }
                 )
             }
-            composable(BottomNavItem.Profile.route) { ProfileScreen() }
+            composable(BottomNavItem.Profile.route) {
+                ProfileScreen(onOverlayVisibilityChange = { profileOverlayVisible = it })
+            }
             composable(DeveloperModeRoute) {
                 DeveloperSettingsScreen(
                     onBack = { navController.popBackStack() }
@@ -253,7 +268,7 @@ fun WanLvNavGraph(navController: NavHostController) {
 //                            .padding(top = 1.dp, bottom = 1.dp)
                             .height(76.dp)
                             .clip(RoundedCornerShape(42.dp))
-                            // 重点：底部导航栏在页面外层绘制，预约弹窗打开时单独补一层雾面，保证和页面内容一起退到背景里。
+                            // 重点：底部导航栏在页面外层绘制，弹窗打开时单独补一层雾面，保证和页面内容一起退到背景里。
                             .background(
                                 Brush.verticalGradient(
                                     listOf(

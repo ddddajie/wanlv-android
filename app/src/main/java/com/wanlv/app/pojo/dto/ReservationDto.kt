@@ -100,3 +100,62 @@ data class ReservationOrderResult(
             ReservationOrderResult(reservationNo = json.optString("reservationNo"))
     }
 }
+
+data class ReservationVisitorDto(
+    val realName: String,
+    val idCardMasked: String,
+    val booker: Boolean,
+    val status: String
+) {
+    companion object {
+        fun fromJson(json: JSONObject) = ReservationVisitorDto(
+            realName = json.optString("realName"),
+            idCardMasked = json.optString("idCardMasked"),
+            booker = json.optBoolean("booker"),
+            status = json.optString("status")
+        )
+    }
+}
+
+data class ReservationOrderDto(
+    val id: Long,
+    val reservationNo: String,
+    val scenicName: String?,
+    val spotName: String?,
+    val visitDate: String,
+    val startTime: String,
+    val endTime: String,
+    val visitorCount: Int,
+    val visitors: List<ReservationVisitorDto>,
+    val contactName: String?,
+    val contactPhone: String?,
+    val status: String,
+    val remark: String?,
+    val cancelReason: String?,
+    val createTime: String?
+) {
+    companion object {
+        fun fromJson(json: JSONObject): ReservationOrderDto {
+            val visitorArray = json.optJSONArray("visitors") ?: JSONArray()
+            return ReservationOrderDto(
+                id = json.optLong("id"),
+                reservationNo = json.optString("reservationNo"),
+                scenicName = json.optNullableString("scenicName"),
+                spotName = json.optNullableString("spotName"),
+                visitDate = json.optString("visitDate"),
+                startTime = json.optString("startTime"),
+                endTime = json.optString("endTime"),
+                visitorCount = json.optInt("visitorCount"),
+                visitors = List(visitorArray.length()) { index ->
+                    ReservationVisitorDto.fromJson(visitorArray.getJSONObject(index))
+                },
+                contactName = json.optNullableString("contactName"),
+                contactPhone = json.optNullableString("contactPhone"),
+                status = json.optString("status"),
+                remark = json.optNullableString("remark"),
+                cancelReason = json.optNullableString("cancelReason"),
+                createTime = json.optNullableString("createTime")
+            )
+        }
+    }
+}

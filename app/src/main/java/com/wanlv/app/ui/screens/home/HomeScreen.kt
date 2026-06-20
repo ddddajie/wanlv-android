@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -46,6 +45,7 @@ import com.wanlv.app.model.ScenicSpot
 import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
 import com.wanlv.app.ui.components.ImageGradientMask
 import com.wanlv.app.ui.components.SectionHeader
+import com.wanlv.app.ui.components.ScenicHeroHeader
 import com.wanlv.app.ui.theme.WanLvBackground
 import com.wanlv.app.ui.theme.WanLvGreen
 import com.wanlv.app.ui.theme.WanLvGreenLight
@@ -340,65 +340,8 @@ private fun ScenicChip(text: String) {
 
 @Composable
 private fun HomeTopBar() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(310.dp)
-    ) {
-        Image(
-            painter = painterResource(id = R.drawable.gg1),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.08f),
-                            Color.Black.copy(alpha = 0.04f),
-                            Color.Black.copy(alpha = 0.30f)
-                        )
-                    )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(96.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            WanLvBackground.copy(alpha = 0.72f),
-                            WanLvBackground
-                        )
-                    )
-                )
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(horizontal = 22.dp, vertical = 34.dp)
-        ) {
-            // 顶部栏使用 gg1 山水图铺到状态栏后方，文字区单独避开状态栏。
-            Text(
-                text = "今天想去哪玩？",
-                color = Color.White,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 30.sp
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "一眼找到适合你的目的地",
-                color = Color.White.copy(alpha = 0.92f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
+    ScenicHeroHeader(
+        title = "今天想去哪玩？",
+        subtitle = "一眼找到适合你的目的地"
+    )
 }

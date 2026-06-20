@@ -11,7 +11,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -84,11 +83,11 @@ import com.wanlv.app.pojo.dto.ReservationSlotDto
 import com.wanlv.app.pojo.dto.ReservationSpotDto
 import com.wanlv.app.pojo.dto.ScenicAreaDto
 import com.wanlv.app.ui.components.FloatingBottomBarAvoidance
+import com.wanlv.app.ui.components.LiquidGlassCard
 import com.wanlv.app.ui.theme.WanLvBackground
 import com.wanlv.app.ui.theme.WanLvGreen
 import com.wanlv.app.ui.theme.WanLvGreenLight
 import com.wanlv.app.ui.theme.WanLvMint
-import com.wanlv.app.ui.theme.WanLvSurface
 import com.wanlv.app.ui.theme.WanLvTextPrimary
 import com.wanlv.app.ui.theme.WanLvTextSecondary
 import com.wanlv.app.viewmodel.BookingDateOption
@@ -1361,39 +1360,6 @@ private fun SmallGlassCloseButton(onClick: () -> Unit) {
     ) {
         Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = WanLvTextPrimary, modifier = Modifier.size(16.dp))
     }
-}
-
-@Composable
-private fun LiquidGlassCard(
-    modifier: Modifier = Modifier,
-    cornerRadius: Dp = 24.dp,
-    padding: PaddingValues = PaddingValues(16.dp),
-    content: @Composable ColumnScope.() -> Unit
-) {
-    val shape = RoundedCornerShape(cornerRadius)
-    Column(
-        modifier = modifier
-            .shadow(
-                elevation = 22.dp,
-                shape = shape,
-                ambientColor = Color(0xFF8FA0AE).copy(alpha = 0.18f),
-                spotColor = Color(0xFF64727F).copy(alpha = 0.13f)
-            )
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.88f),
-                        WanLvSurface.copy(alpha = 0.68f),
-                        WanLvMint.copy(alpha = 0.36f),
-                        Color.White.copy(alpha = 0.76f)
-                    )
-                )
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.80f), shape)
-            .padding(padding),
-        content = content
-    )
 }
 
 private fun quotaLabel(quota: ReservationQuotaSummary?): String =
