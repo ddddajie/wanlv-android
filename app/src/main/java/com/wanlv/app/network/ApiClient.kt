@@ -14,10 +14,13 @@ import org.json.JSONTokener
 import java.util.concurrent.TimeUnit
 
 object ApiClient {
+    private const val DialogueTimeoutSeconds = 90L
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        // 重点：AI 对话可能需要较长推理时间，连接、写入和响应读取统一允许等待 90 秒。
+        .connectTimeout(DialogueTimeoutSeconds, TimeUnit.SECONDS)
+        .writeTimeout(DialogueTimeoutSeconds, TimeUnit.SECONDS)
+        .readTimeout(DialogueTimeoutSeconds, TimeUnit.SECONDS)
         .build()
 
     suspend fun get(path: String, query: Map<String, Any?> = emptyMap()): Any? =

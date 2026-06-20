@@ -72,6 +72,7 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -1659,12 +1660,12 @@ private fun DigitalHumanInputBar(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 430.dp),
-        cornerRadius = 26.dp,
-        padding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+        cornerRadius = 28.dp,
+        padding = PaddingValues(horizontal = 7.dp, vertical = 6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextField(
@@ -1672,10 +1673,19 @@ private fun DigitalHumanInputBar(
                 onValueChange = onValueChange,
                 modifier = Modifier
                     .weight(1f)
-                    .height(56.dp),
+                    .height(46.dp),
                 enabled = !sending,
                 singleLine = true,
-                placeholder = { Text("直接向数字人提问", color = WanLvTextSecondary.copy(alpha = 0.72f), fontSize = 13.sp) },
+                textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                placeholder = {
+                    Text(
+                        "直接向数字人提问",
+                        color = WanLvTextSecondary.copy(alpha = 0.72f),
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 1
+                    )
+                },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
                 colors = TextFieldDefaults.colors(
@@ -1690,48 +1700,80 @@ private fun DigitalHumanInputBar(
 
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(38.dp)
+                    .shadow(
+                        elevation = 14.dp,
+                        shape = CircleShape,
+                        ambientColor = Color(0xFF8FA0AE).copy(alpha = 0.20f),
+                        spotColor = Color(0xFF64727F).copy(alpha = 0.14f)
+                    )
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.46f))
-                    .border(1.dp, Color.White.copy(alpha = 0.76f), CircleShape),
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.52f),
+                                WanLvSurface.copy(alpha = 0.42f),
+                                Color.White.copy(alpha = 0.48f)
+                            )
+                        )
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.58f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Rounded.Mic, contentDescription = "语音输入", tint = WanLvTextSecondary, modifier = Modifier.size(19.dp))
+                Icon(
+                    Icons.Rounded.Mic,
+                    contentDescription = "语音输入",
+                    tint = WanLvTextSecondary.copy(alpha = 0.50f),
+                    modifier = Modifier.size(17.dp)
+                )
             }
 
             Box(
                 modifier = Modifier
-                    .height(46.dp)
-                    .clip(RoundedCornerShape(23.dp))
-                    // 重点：发送按钮保留液态玻璃底色，输入可发送时再用绿色强调状态。
-                    .background(if (canSend) WanLvGreen.copy(alpha = 0.78f) else WanLvGreenLight.copy(alpha = 0.42f))
-                    .border(1.dp, Color.White.copy(alpha = 0.72f), RoundedCornerShape(23.dp))
+                    .size(40.dp)
+                    .shadow(
+                        elevation = 14.dp,
+                        shape = CircleShape,
+                        ambientColor = Color(0xFF8FA0AE).copy(alpha = 0.20f),
+                        spotColor = Color(0xFF64727F).copy(alpha = 0.14f)
+                    )
+                    .clip(CircleShape)
+                    // 重点：地图数字人输入区与问答页统一为紧凑的圆形液态玻璃发送按钮。
+                    .background(
+                        Brush.linearGradient(
+                            if (canSend) {
+                                listOf(
+                                    WanLvGreenLight.copy(alpha = 0.90f),
+                                    WanLvGreen.copy(alpha = 0.86f),
+                                    Color.White.copy(alpha = 0.28f)
+                                )
+                            } else {
+                                listOf(
+                                    Color.White.copy(alpha = 0.52f),
+                                    WanLvSurface.copy(alpha = 0.42f),
+                                    Color.White.copy(alpha = 0.48f)
+                                )
+                            }
+                        )
+                    )
+                    .border(1.dp, Color.White.copy(alpha = if (canSend) 0.78f else 0.58f), CircleShape)
                     .clickable(
                         enabled = canSend,
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = onSend
-                    )
-                    .padding(horizontal = 15.dp),
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 if (sending) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), color = WanLvGreen, strokeWidth = 2.dp)
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.Send,
-                            contentDescription = "发送",
-                            tint = if (canSend) Color.White else WanLvTextSecondary.copy(alpha = 0.55f),
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Text(
-                            "发送",
-                            color = if (canSend) Color.White else WanLvTextSecondary.copy(alpha = 0.55f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Icon(
+                        Icons.AutoMirrored.Rounded.Send,
+                        contentDescription = "发送",
+                        tint = if (canSend) Color.White else WanLvTextSecondary.copy(alpha = 0.50f),
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }

@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,6 +34,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -62,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -165,7 +167,6 @@ fun ChatScreen(
                     item { ScenicContextMessage(scenicContext.scenicAreaName) }
                 }
                 items(viewModel.messages, key = { it.id }) { message -> ChatBubble(message) }
-                item { QuickPromptCards(onPromptSelected = viewModel::updateInput) }
             }
             ChatInputBar(
                 value = viewModel.input.value,
@@ -521,43 +522,83 @@ private fun ChatBubble(message: ChatMessage) {
         if (!message.fromUser) {
             AiBadge()
         }
+        val bubbleShape = RoundedCornerShape(
+            topStart = 22.dp,
+            topEnd = 22.dp,
+            bottomStart = if (message.fromUser) 22.dp else 7.dp,
+            bottomEnd = if (message.fromUser) 7.dp else 22.dp
+        )
+        val bubbleGradient = if (message.fromUser) {
+            Brush.linearGradient(
+                listOf(
+                    WanLvGreenLight.copy(alpha = 0.82f),
+                    WanLvGreen.copy(alpha = 0.76f),
+                    Color.White.copy(alpha = 0.18f)
+                )
+            )
+        } else {
+            Brush.linearGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.90f),
+                    WanLvMint.copy(alpha = 0.54f),
+                    WanLvSurface.copy(alpha = 0.72f),
+                    Color.White.copy(alpha = 0.78f)
+                )
+            )
+        }
         Box(
             modifier = Modifier
                 .padding(start = if (message.fromUser) 58.dp else 8.dp, end = if (message.fromUser) 0.dp else 42.dp)
-                .shadow(
-                    elevation = if (message.fromUser) 10.dp else 16.dp,
-                    shape = RoundedCornerShape(22.dp),
-                    ambientColor = Color(0xFF64727F).copy(alpha = 0.12f),
-                    spotColor = Color(0xFF64727F).copy(alpha = 0.10f)
-                )
-                .clip(RoundedCornerShape(22.dp))
-                .background(
-                    if (message.fromUser) {
-                        Brush.linearGradient(
-                            listOf(
-                                WanLvGreenLight.copy(alpha = 0.92f),
-                                WanLvGreen.copy(alpha = 0.92f)
-                            )
-                        )
-                    } else {
-                        Brush.linearGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.94f),
-                                WanLvSurface.copy(alpha = 0.72f),
-                                Color.White.copy(alpha = 0.82f)
-                            )
-                        )
-                    }
-                )
-                .border(1.dp, Color.White.copy(alpha = if (message.fromUser) 0.38f else 0.76f), RoundedCornerShape(22.dp))
-                .padding(horizontal = 15.dp, vertical = 12.dp)
+                .padding(bottom = 4.dp)
         ) {
-            Text(
-                text = message.content,
-                color = if (message.fromUser) Color.White else WanLvTextPrimary,
-                fontSize = 14.sp,
-                lineHeight = 20.sp
+            // 重点：先绘制半透明气泡尾巴，再让主体覆盖接缝，形成完整的液态玻璃气泡轮廓。
+            Box(
+                modifier = Modifier
+                    .align(if (message.fromUser) Alignment.BottomEnd else Alignment.BottomStart)
+                    .offset(
+                        x = if (message.fromUser) (-2).dp else 2.dp,
+                        y = 2.dp
+                    )
+                    .size(16.dp)
+                    .rotate(45f)
+                    .shadow(
+                        elevation = 8.dp,
+                        shape = RoundedCornerShape(4.dp),
+                        ambientColor = WanLvGreen.copy(alpha = 0.10f),
+                        spotColor = Color(0xFF64727F).copy(alpha = 0.10f)
+                    )
+                    .background(bubbleGradient, RoundedCornerShape(4.dp))
+                    .border(
+                        1.dp,
+                        Color.White.copy(alpha = if (message.fromUser) 0.40f else 0.72f),
+                        RoundedCornerShape(4.dp)
+                    )
             )
+
+            Box(
+                modifier = Modifier
+                    .shadow(
+                        elevation = if (message.fromUser) 13.dp else 17.dp,
+                        shape = bubbleShape,
+                        ambientColor = Color(0xFF8FA0AE).copy(alpha = 0.18f),
+                        spotColor = Color(0xFF64727F).copy(alpha = 0.12f)
+                    )
+                    .clip(bubbleShape)
+                    .background(bubbleGradient)
+                    .border(
+                        1.dp,
+                        Color.White.copy(alpha = if (message.fromUser) 0.46f else 0.82f),
+                        bubbleShape
+                    )
+                    .padding(horizontal = 16.dp, vertical = 13.dp)
+            ) {
+                Text(
+                    text = message.content,
+                    color = if (message.fromUser) Color.White else WanLvTextPrimary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            }
         }
     }
 }
@@ -586,45 +627,6 @@ private fun AiBadge() {
 }
 
 @Composable
-private fun QuickPromptCards(onPromptSelected: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-        QuickPrompts.forEach { prompt ->
-            QuickPromptButton(
-                prompt = prompt,
-                modifier = Modifier.weight(1f),
-                onClick = { onPromptSelected(prompt.question) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuickPromptButton(
-    prompt: QuickPrompt,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    LiquidGlassCard(
-        modifier = modifier
-            .heightIn(min = 76.dp)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        cornerRadius = 20.dp,
-        padding = PaddingValues(12.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(prompt.title, color = WanLvTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Black, lineHeight = 17.sp)
-            if (prompt.subtitle.isNotBlank()) {
-                Text(prompt.subtitle, color = WanLvTextSecondary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-@Composable
 private fun ChatInputBar(
     value: String,
     onValueChange: (String) -> Unit,
@@ -644,36 +646,38 @@ private fun ChatInputBar(
                     )
                 )
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         LiquidGlassCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 520.dp)
                 .align(Alignment.Center),
-            cornerRadius = 32.dp,
-            padding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+            cornerRadius = 28.dp,
+            padding = PaddingValues(horizontal = 7.dp, vertical = 6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                LiquidGlassIconButton(
-                    icon = Icons.Rounded.Mic,
-                    label = "语音输入",
-                    size = 46.dp,
-                    enabled = false,
-                    onClick = {}
-                )
                 TextField(
                     value = value,
                     onValueChange = onValueChange,
                     modifier = Modifier
                         .weight(1f)
-                        .height(52.dp),
+                        .height(46.dp),
                     singleLine = true,
-                    placeholder = { Text("有问题尽管问我", color = WanLvTextSecondary.copy(alpha = 0.72f), fontSize = 14.sp) },
+                    textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                    placeholder = {
+                        Text(
+                            "有问题尽管问我",
+                            color = WanLvTextSecondary.copy(alpha = 0.72f),
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            maxLines = 1
+                        )
+                    },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
                     colors = TextFieldDefaults.colors(
@@ -685,9 +689,16 @@ private fun ChatInputBar(
                     )
                 )
                 LiquidGlassIconButton(
+                    icon = Icons.Rounded.Mic,
+                    label = "语音输入",
+                    size = 38.dp,
+                    enabled = false,
+                    onClick = {}
+                )
+                LiquidGlassIconButton(
                     icon = Icons.AutoMirrored.Rounded.Send,
                     label = "发送",
-                    size = 48.dp,
+                    size = 40.dp,
                     enabled = canSend,
                     accent = canSend,
                     onClick = onSend
@@ -800,15 +811,3 @@ private fun LiquidGlassCard(
         content()
     }
 }
-
-private data class QuickPrompt(
-    val title: String,
-    val subtitle: String,
-    val question: String
-)
-
-private val QuickPrompts = listOf(
-    QuickPrompt("最佳游览路线", "3-5 小时", "帮我规划一条3-5小时的最佳游览路线"),
-    QuickPrompt("亲子友好", "适合带小朋友", "附近有哪些适合亲子游的项目？"),
-    QuickPrompt("避开拥挤", "错峰游览建议", "现在怎么游览可以尽量避开拥挤？")
-)

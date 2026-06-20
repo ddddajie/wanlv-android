@@ -18,7 +18,9 @@ import com.wanlv.app.digitalhuman.DigitalHumanSessionManager
 import com.wanlv.app.digitalhuman.GreenScreenKeyer
 import com.wanlv.app.digitalhuman.sanitizeDigitalHumanSpeechText
 import com.wanlv.app.model.ChatMessage
+import com.wanlv.app.network.AuthSession
 import com.wanlv.app.repository.UserAgentRepository
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -26,6 +28,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+private const val LoginRequiredMessage = "请先登录后再使用智能问答"
 
 enum class ChatDigitalHumanPersona(
     val label: String,
@@ -62,6 +66,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val sessionManager = DigitalHumanSessionManager(application.applicationContext)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connectMutex = Mutex()
+    private val messageIdGenerator = AtomicLong(System.currentTimeMillis())
     private var connectionJob: Job? = null
     private var sessionGeneration = 0L
     private val previewBitmaps = ChatDigitalHumanPersona.all.associateWith { persona ->
@@ -163,9 +168,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun sendMessage() {
         val content = input.value.trim()
         if (content.isEmpty()) return
-        messages.add(ChatMessage(System.currentTimeMillis(), content, true))
+
+        if (AuthSession.userId == null || AuthSession.token.isNullOrBlank()) {
+            input.value = ""
+            // 重点：未登录时不发起 Agent 请求，并且只保留一条提示，避免连续发送堆积消息。
+            addSystemMessageIfChanged(LoginRequiredMessage)
+            return
+        }
+
+        messages.add(ChatMessage(nextMessageId(), content, true))
         input.value = ""
-        val loadingId = System.currentTimeMillis() + 1
+        val loadingId = nextMessageId()
         messages.add(ChatMessage(loadingId, "正在思考...", false))
         viewModelScope.launch {
             if (digitalHumanState.connected) {
@@ -185,14 +198,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             messages.removeAll { it.id == loadingId }
             if (result.isSuccess) {
                 val response = result.getOrThrow()
-                messages.add(ChatMessage(System.currentTimeMillis(), response.answer, false))
+                messages.add(ChatMessage(nextMessageId(), response.answer, false))
                 speakAnswerIfConnected(response.answer)
             } else {
                 val error = result.exceptionOrNull()
                 // 智能问答需要登录态；失败时不静默吞掉，方便联调定位接口或 token 问题。
-                messages.add(ChatMessage(System.currentTimeMillis(), error?.message ?: "智能问答接口调用失败", false))
+                addSystemMessageIfChanged(error?.message ?: "智能问答接口调用失败")
             }
         }
+    }
+
+    private fun nextMessageId(): Long = messageIdGenerator.incrementAndGet()
+
+    private fun addSystemMessageIfChanged(content: String) {
+        if (messages.lastOrNull()?.let { !it.fromUser && it.content == content } == true) return
+        // 重点：严格递增 ID 保证 LazyColumn 的 key 永不重复，连续快速发送也不会触发 Compose 崩溃。
+        messages.add(ChatMessage(nextMessageId(), content, false))
     }
 
     private suspend fun ensureDigitalHumanConnected(

@@ -46,6 +46,7 @@ import com.wanlv.app.ui.screens.developer.DeveloperSettingsScreen
 import com.wanlv.app.ui.screens.home.HomeScreen
 import com.wanlv.app.ui.screens.map.MapScreen
 import com.wanlv.app.ui.screens.profile.ProfileScreen
+import com.wanlv.app.network.AuthSession
 import kotlinx.coroutines.delay
 
 private const val DeveloperModeRoute = "developer_mode"
@@ -56,13 +57,15 @@ private const val ChatBottomBarAutoHideDelayMillis = 5_000L
 
 @Composable
 fun WanLvNavGraph(navController: NavHostController) {
-    val tabs = listOf(
-        BottomNavItem.Home,
-        BottomNavItem.Map,
-        BottomNavItem.Booking,
-        BottomNavItem.Chat,
-        BottomNavItem.Profile
-    )
+    val isLoggedIn = AuthSession.userId != null && !AuthSession.token.isNullOrBlank()
+    val tabs = buildList {
+        add(BottomNavItem.Home)
+        add(BottomNavItem.Map)
+        add(BottomNavItem.Booking)
+        // 重点：智能问答依赖登录态，未登录时从底部导航中完全移除入口。
+        if (isLoggedIn) add(BottomNavItem.Chat)
+        add(BottomNavItem.Profile)
+    }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: BottomNavItem.Home.route
     var homeTapCount by remember { mutableIntStateOf(0) }
