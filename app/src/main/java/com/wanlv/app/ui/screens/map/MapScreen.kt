@@ -22,7 +22,12 @@ import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -83,6 +88,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -106,6 +112,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wanlv.app.config.AppConfig
+import com.wanlv.app.data.RecentScenicContextStore
 import com.wanlv.app.network.AuthSession
 import com.wanlv.app.pojo.dto.MapBoundsDto
 import com.wanlv.app.pojo.dto.MapGeoFeatureDto
@@ -121,6 +128,7 @@ import com.wanlv.app.ui.theme.WanLvBackground
 import com.wanlv.app.ui.theme.WanLvDivider
 import com.wanlv.app.ui.theme.WanLvGreen
 import com.wanlv.app.ui.theme.WanLvGreenLight
+import com.wanlv.app.ui.theme.WanLvMint
 import com.wanlv.app.ui.theme.WanLvSurface
 import com.wanlv.app.ui.theme.WanLvTextPrimary
 import com.wanlv.app.ui.theme.WanLvTextSecondary
@@ -248,6 +256,13 @@ fun MapScreen(
         showRoutePanel = false
     }
 
+    LaunchedEffect(uiState.mapInit?.scenicArea?.id) {
+        uiState.mapInit?.scenicArea?.let { area ->
+            // 重点：地图成功展示景区后持久化 ID 和名称，问答页会自动带入这份最近浏览上下文。
+            RecentScenicContextStore.save(context, area.id, area.scenicName)
+        }
+    }
+
     LaunchedEffect(isLoggedIn) {
         if (!isLoggedIn) digitalHumanViewModel.close()
     }
@@ -271,6 +286,8 @@ fun MapScreen(
 
         MapToolDock(
             showAiChat = isLoggedIn,
+            digitalHumanConnected = digitalHumanState.connected,
+            digitalHumanConnecting = digitalHumanState.connecting,
             onSwitchMap = {
                 showScenicPicker = true
                 showScenicDetail = false
@@ -1457,6 +1474,8 @@ private fun findNearestSpot(spots: List<MapSpotDto>, latLng: LatLng): MapSpotDto
 @Composable
 private fun MapToolDock(
     showAiChat: Boolean,
+    digitalHumanConnected: Boolean,
+    digitalHumanConnecting: Boolean,
     onSwitchMap: () -> Unit,
     onOpenAiChat: () -> Unit,
     onOpenScenicDetail: () -> Unit,
@@ -1473,7 +1492,13 @@ private fun MapToolDock(
         LiquidGlassIconButton(Icons.Rounded.Map, "切换地图", onClick = onSwitchMap)
         // 重点：数字人问答依赖登录态，未登录时隐藏入口，避免用户进入后才收到接口失败。
         if (showAiChat) {
-            LiquidGlassIconButton(Icons.Rounded.AutoAwesome, "AI对话", onClick = onOpenAiChat)
+            LiquidGlassIconButton(
+                icon = Icons.Rounded.AutoAwesome,
+                label = if (digitalHumanConnected) "关闭数字导游" else "连接数字导游",
+                active = digitalHumanConnected,
+                loading = digitalHumanConnecting,
+                onClick = onOpenAiChat
+            )
         }
         LiquidGlassIconButton(Icons.Rounded.Info, "景区详细信息", onClick = onOpenScenicDetail)
         LiquidGlassIconButton(Icons.Rounded.Route, "景区路线推荐", onClick = onOpenRoutePanel)
@@ -1487,6 +1512,8 @@ private fun LiquidGlassIconButton(
     icon: ImageVector,
     label: String,
     enabled: Boolean = true,
+    active: Boolean = false,
+    loading: Boolean = false,
     onClick: () -> Unit
 ) {
     val shape = CircleShape
@@ -1506,7 +1533,7 @@ private fun LiquidGlassIconButton(
                     listOf(
                         Color.White.copy(alpha = if (enabled) 0.82f else 0.58f),
                         WanLvSurface.copy(alpha = if (enabled) 0.64f else 0.42f),
-                        Color.White.copy(alpha = if (enabled) 0.72f else 0.48f)
+                        if (active) WanLvMint.copy(alpha = 0.56f) else Color.White.copy(alpha = if (enabled) 0.72f else 0.48f)
                     )
                 )
             )
@@ -1519,12 +1546,53 @@ private fun LiquidGlassIconButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = if (enabled) WanLvTextPrimary else WanLvTextSecondary.copy(alpha = 0.48f),
-            modifier = Modifier.size(21.dp)
-        )
+        if (active) {
+            val haloTransition = rememberInfiniteTransition(label = "map-digital-human-halo")
+            val haloScale by haloTransition.animateFloat(
+                initialValue = 0.78f,
+                targetValue = 1.08f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1_250),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "map-digital-human-halo-scale"
+            )
+            val haloAlpha by haloTransition.animateFloat(
+                initialValue = 0.28f,
+                targetValue = 0.76f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1_250),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "map-digital-human-halo-alpha"
+            )
+            // 重点：地图数字人连接成功后使用与问答页一致的呼吸光圈反馈在线状态。
+            Box(
+                modifier = Modifier
+                    .size(29.dp)
+                    .scale(haloScale)
+                    .border(2.dp, WanLvGreen.copy(alpha = haloAlpha), CircleShape)
+            )
+        }
+
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(19.dp),
+                color = WanLvGreen,
+                strokeWidth = 2.dp
+            )
+        } else {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = when {
+                    active -> WanLvGreen
+                    enabled -> WanLvTextPrimary
+                    else -> WanLvTextSecondary.copy(alpha = 0.48f)
+                },
+                modifier = Modifier.size(21.dp)
+            )
+        }
     }
 }
 

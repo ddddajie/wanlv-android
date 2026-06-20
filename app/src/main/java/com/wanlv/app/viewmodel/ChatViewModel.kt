@@ -13,7 +13,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wanlv.app.R
 import com.wanlv.app.config.AppConfig
-import com.wanlv.app.data.MockData
+import com.wanlv.app.data.RecentScenicContextStore
 import com.wanlv.app.digitalhuman.DigitalHumanSessionManager
 import com.wanlv.app.digitalhuman.GreenScreenKeyer
 import com.wanlv.app.digitalhuman.sanitizeDigitalHumanSpeechText
@@ -68,10 +68,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         GreenScreenKeyer.keyBitmap(BitmapFactory.decodeResource(application.resources, persona.previewResId))
     }
 
-    val messages = mutableStateListOf<ChatMessage>().apply {
-        addAll(MockData.initialMessages)
-    }
+    val messages = mutableStateListOf<ChatMessage>()
     var input = mutableStateOf("")
+        private set
+    var scenicContext by mutableStateOf(RecentScenicContextStore.load(application))
         private set
     var digitalHumanState by mutableStateOf(ChatDigitalHumanUiState())
         private set
@@ -83,6 +83,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun updateInput(value: String) {
         input.value = value
     }
+
+    fun refreshScenicContext() {
+        scenicContext = RecentScenicContextStore.load(getApplication())
+    }
+
+    fun previewBitmap(persona: ChatDigitalHumanPersona): Bitmap =
+        previewBitmaps[persona] ?: previewBitmaps.getValue(ChatDigitalHumanPersona.Guide)
 
     fun toggleDigitalHumanConnection() {
         if (digitalHumanState.connected || digitalHumanState.connecting) {
@@ -167,7 +174,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 digitalHumanState = digitalHumanState.copy(speaking = false, status = "正在等待 AI 回复...")
             }
 
-            val result = runCatching { agentRepository.chat(content) }
+            val context = scenicContext
+            val result = runCatching {
+                agentRepository.chat(
+                    content = content,
+                    // 重点：景区名称仅供页面展示，请求按后端协议只显式发送景区 ID。
+                    scenicAreaId = context?.scenicAreaId
+                )
+            }
             messages.removeAll { it.id == loadingId }
             if (result.isSuccess) {
                 val response = result.getOrThrow()

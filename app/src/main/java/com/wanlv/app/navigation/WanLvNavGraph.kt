@@ -52,7 +52,7 @@ private const val DeveloperModeRoute = "developer_mode"
 private const val DeveloperModeTapCount = 7
 private const val DeveloperModeTapWindowMillis = 1800L
 private const val MapBottomBarAutoHideDelayMillis = 10_000L
-private const val ChatBottomBarAutoHideDelayMillis = 2_000L
+private const val ChatBottomBarAutoHideDelayMillis = 5_000L
 
 @Composable
 fun WanLvNavGraph(navController: NavHostController) {
@@ -104,7 +104,7 @@ fun WanLvNavGraph(navController: NavHostController) {
             }
             isChatRoute -> {
                 mapDigitalHumanVisible = false
-                // 重点：问答页进入后保留导航入口 2 秒，再自动收起给输入区域腾出空间。
+                // 重点：问答页进入后保留导航入口 5 秒，再自动收起给输入区域腾出空间。
                 chatBottomBarExpanded = true
                 delay(ChatBottomBarAutoHideDelayMillis)
                 chatBottomBarExpanded = false

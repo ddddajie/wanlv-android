@@ -2,7 +2,6 @@ package com.wanlv.app.data
 
 import com.wanlv.app.model.BookingDate
 import com.wanlv.app.model.BookingTimeSlot
-import com.wanlv.app.model.ChatMessage
 import com.wanlv.app.model.ScenicSpot
 import com.wanlv.app.model.TicketOption
 import com.wanlv.app.model.UserProfile
@@ -38,12 +37,6 @@ object MockData {
     val tickets = listOf(
         TicketOption("成人票", 108, 118, "凭有效证件入园"),
         TicketOption("学生/老人优惠票", 54, 68, "入园请携带身份证、学生证或老人证")
-    )
-
-    val initialMessages = listOf(
-        ChatMessage(1, "你好，我是万旅小助手。可以帮你规划路线、查询开放时间，也能推荐附近服务。", false),
-        ChatMessage(2, "灵山胜境适合带小朋友去吗？", true),
-        ChatMessage(3, "适合。建议上午参观灵山大佛和九龙灌浴，中午在景区餐厅休息，下午选择拈花湾轻松游览。", false)
     )
 
     val userProfile = UserProfile("游客001", "普通用户", true)
